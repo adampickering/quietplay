@@ -21,6 +21,8 @@
   body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
   header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 24px; }
   h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  h2 { margin: 0 0 16px; font-size: 20px; font-weight: 600; }
+  h3 { margin: 32px 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
   nav button { background: none; border: 0; font: inherit; color: var(--muted); padding: 8px 0; cursor: pointer; border-bottom: 2px solid transparent; margin-right: 16px; }
   nav button.active { color: var(--fg); border-bottom-color: var(--accent); }
   main { padding: 24px; max-width: 1000px; }
@@ -29,18 +31,25 @@
   table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 14px; }
   th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
-  form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 600px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--bg), var(--fg) 3%); }
+  form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 680px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--bg), var(--fg) 3%); }
   form .full { grid-column: span 2; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   input[type=text], input[type=number], select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit; }
   button.primary { padding: 8px 16px; background: var(--accent); color: white; border: 0; border-radius: 4px; font: inherit; cursor: pointer; }
-  button.link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+  button.primary[disabled] { opacity: 0.5; cursor: wait; }
+  button.secondary { padding: 8px 14px; background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font: inherit; cursor: pointer; }
+  button.link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0; margin-right: 12px; }
   button.danger { background: none; border: 0; color: var(--danger); cursor: pointer; font: inherit; padding: 0; }
   .channel-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; background: var(--bg); }
   .pill input { margin: 0; }
-  .err { color: var(--danger); font-size: 13px; margin: 8px 0; }
+  .err { color: var(--danger); font-size: 13px; margin-left: 12px; }
+  .info { color: var(--muted); font-size: 13px; margin-left: 12px; }
   .empty { color: var(--muted); font-style: italic; }
+  .lookup-row { display: flex; gap: 8px; align-items: flex-end; }
+  .lookup-row label { flex: 1; }
+  .edit-row td { background: color-mix(in srgb, var(--bg), var(--fg) 4%); padding: 16px 12px; }
+  .edit-actions { display: flex; gap: 8px; margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -58,12 +67,23 @@
       <thead><tr><th>Title</th><th>YouTube ID</th><th>Active</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
+
     <h3>Add channel</h3>
     <form id="channel-form">
-      <label class="full">Title<input name="title" type="text" required /></label>
-      <label class="full">YouTube channel ID<input name="youtube_channel_id" type="text" required placeholder="UCxxxxxxxxxxxxxxxxx" /></label>
+      <div class="full lookup-row">
+        <label>Paste YouTube channel URL
+          <input name="lookup_url" type="text" placeholder="https://www.youtube.com/@channelname" />
+        </label>
+        <button type="button" class="secondary" id="lookup-btn">Look up</button>
+      </div>
+      <label>Title<input name="title" type="text" required /></label>
+      <label>YouTube channel ID<input name="youtube_channel_id" type="text" required placeholder="UCxxxxxxxxxxxxxxxxx" /></label>
       <label class="full">Thumbnail URL (optional)<input name="thumbnail_url" type="text" /></label>
-      <div class="full"><button class="primary" type="submit">Add</button><span class="err" id="channel-err"></span></div>
+      <div class="full">
+        <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">Add to profiles (optional)</div>
+        <div class="channel-pills" id="channel-form-profiles"></div>
+      </div>
+      <div class="full"><button class="primary" type="submit">Add</button><span class="err" id="channel-err"></span><span class="info" id="channel-info"></span></div>
     </form>
   </section>
 
@@ -73,6 +93,7 @@
       <thead><tr><th>#</th><th>Name</th><th>Channels</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
+
     <h3>Add profile</h3>
     <form id="profile-form">
       <label>Name<input name="name" type="text" required /></label>
@@ -88,7 +109,11 @@
 
 <script>
 const api = {
-  async get(path) { return (await fetch(path)).json(); },
+  async get(path) {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    return res.json();
+  },
   async post(path, body) {
     const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
@@ -116,7 +141,7 @@ function showTab(name) {
   }
 }
 tabs.channels.btn.addEventListener('click', () => showTab('channels'));
-tabs.profiles.btn.addEventListener('click', () => { showTab('profiles'); renderProfileChannels(); });
+tabs.profiles.btn.addEventListener('click', () => { showTab('profiles'); renderProfileFormChannels(); });
 
 let channels = [];
 let profiles = [];
@@ -129,6 +154,7 @@ async function loadChannels() {
   tbody.innerHTML = '';
   if (channels.length === 0) {
     tbody.innerHTML = '<tr><td colspan="4" class="empty">No channels yet.</td></tr>';
+    renderChannelFormProfiles();
     return;
   }
   for (const c of channels) {
@@ -147,9 +173,11 @@ async function loadChannels() {
       const nextActive = btn.dataset.active !== 'true';
       await api.patch(`/admin/api/channels/${id}`, { is_active: nextActive });
       await loadChannels();
-      renderProfileChannels();
+      await loadProfiles();
+      renderProfileFormChannels();
     });
   });
+  renderChannelFormProfiles();
 }
 
 async function loadProfiles() {
@@ -159,30 +187,94 @@ async function loadProfiles() {
   tbody.innerHTML = '';
   if (profiles.length === 0) {
     tbody.innerHTML = '<tr><td colspan="4" class="empty">No profiles yet.</td></tr>';
+    renderChannelFormProfiles();
     return;
   }
   const channelName = new Map(channels.map(c => [c.id, c.title]));
   for (const p of profiles) {
     const names = p.channel_ids.map(id => channelName.get(id) || id).join(', ');
     const tr = document.createElement('tr');
+    tr.dataset.profileId = p.id;
     tr.innerHTML = `
       <td>${p.position}</td>
       <td>${esc(p.name)}</td>
       <td>${esc(names) || '<span class="empty">none</span>'}</td>
-      <td><button class="danger" data-id="${p.id}">Delete</button></td>
+      <td>
+        <button class="link" data-action="edit" data-id="${p.id}">Edit</button>
+        <button class="danger" data-action="delete" data-id="${p.id}">Delete</button>
+      </td>
     `;
     tbody.appendChild(tr);
   }
-  tbody.querySelectorAll('button.danger').forEach(btn => {
+  tbody.querySelectorAll('button[data-action=delete]').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm('Delete this profile?')) return;
       await api.del(`/admin/api/profiles/${btn.dataset.id}`);
       await loadProfiles();
     });
   });
+  tbody.querySelectorAll('button[data-action=edit]').forEach(btn => {
+    btn.addEventListener('click', () => openProfileEditor(btn.dataset.id));
+  });
+  renderChannelFormProfiles();
 }
 
-function renderProfileChannels() {
+function openProfileEditor(profileId) {
+  const row = document.querySelector(`tr[data-profile-id="${profileId}"]`);
+  if (!row || row.classList.contains('editing')) return;
+  const profile = profiles.find(p => p.id === profileId);
+  if (!profile) return;
+  row.classList.add('editing');
+
+  const active = channels.filter(c => c.is_active);
+  const selected = new Set(profile.channel_ids);
+  const channelPills = active.map(c =>
+    `<label class="pill"><input type="checkbox" value="${c.id}" ${selected.has(c.id) ? 'checked' : ''}/> ${esc(c.title)}</label>`
+  ).join('');
+
+  const editor = document.createElement('tr');
+  editor.className = 'edit-row';
+  editor.innerHTML = `
+    <td colspan="4">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Editing <strong>${esc(profile.name)}</strong></div>
+      <label>Name<br /><input type="text" value="${esc(profile.name)}" style="min-width:240px;" /></label>
+      <div style="margin-top:12px;">
+        <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">Channels</div>
+        <div class="channel-pills">${channelPills || '<span class="empty">No active channels.</span>'}</div>
+      </div>
+      <div class="edit-actions">
+        <button class="primary" data-action="save">Save</button>
+        <button class="secondary" data-action="cancel">Cancel</button>
+        <span class="err"></span>
+      </div>
+    </td>
+  `;
+  row.after(editor);
+
+  const nameInput = editor.querySelector('input[type=text]');
+  const errEl = editor.querySelector('.err');
+  editor.querySelector('button[data-action=cancel]').addEventListener('click', () => {
+    editor.remove();
+    row.classList.remove('editing');
+  });
+  editor.querySelector('button[data-action=save]').addEventListener('click', async () => {
+    errEl.textContent = '';
+    const channel_ids = Array.from(editor.querySelectorAll('input[type=checkbox]:checked')).map(i => i.value);
+    try {
+      await api.patch(`/admin/api/profiles/${profileId}`, {
+        name: nameInput.value.trim(),
+        channel_ids,
+      });
+      editor.remove();
+      row.classList.remove('editing');
+      await loadProfiles();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  });
+}
+
+function renderProfileFormChannels() {
   const container = document.getElementById('profile-channels');
   container.innerHTML = '';
   const active = channels.filter(c => c.is_active);
@@ -198,20 +290,72 @@ function renderProfileChannels() {
   }
 }
 
+function renderChannelFormProfiles() {
+  const container = document.getElementById('channel-form-profiles');
+  container.innerHTML = '';
+  if (profiles.length === 0) {
+    container.innerHTML = '<span class="empty">No profiles yet. Create one in the Profiles tab.</span>';
+    return;
+  }
+  for (const p of profiles) {
+    const label = document.createElement('label');
+    label.className = 'pill';
+    label.innerHTML = `<input type="checkbox" data-profile-id="${p.id}" /> ${esc(p.name)}`;
+    container.appendChild(label);
+  }
+}
+
+// Lookup YouTube URL → channel metadata
+document.getElementById('lookup-btn').addEventListener('click', async () => {
+  const form = document.getElementById('channel-form');
+  const btn = document.getElementById('lookup-btn');
+  const errEl = document.getElementById('channel-err');
+  const infoEl = document.getElementById('channel-info');
+  errEl.textContent = '';
+  infoEl.textContent = '';
+  const url = form.lookup_url.value.trim();
+  if (!url) { errEl.textContent = 'paste a URL or channel ID first'; return; }
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Looking up…';
+  try {
+    const meta = await api.post('/admin/api/channels/lookup', { url });
+    form.title.value = meta.title;
+    form.youtube_channel_id.value = meta.youtube_channel_id;
+    form.thumbnail_url.value = meta.thumbnail_url || '';
+    infoEl.textContent = 'Found. Review and click Add.';
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+});
+
 document.getElementById('channel-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   const errEl = document.getElementById('channel-err');
+  const infoEl = document.getElementById('channel-info');
   errEl.textContent = '';
+  infoEl.textContent = '';
+  const selectedProfiles = Array.from(document.querySelectorAll('#channel-form-profiles input:checked')).map(i => i.dataset.profileId);
   try {
-    await api.post('/admin/api/channels', {
+    const created = await api.post('/admin/api/channels', {
       title: f.title.value.trim(),
       youtube_channel_id: f.youtube_channel_id.value.trim(),
       thumbnail_url: f.thumbnail_url.value.trim() || null,
     });
+    for (const pid of selectedProfiles) {
+      const profile = profiles.find(p => p.id === pid);
+      if (!profile) continue;
+      const next = Array.from(new Set([...profile.channel_ids, created.id]));
+      await api.patch(`/admin/api/profiles/${pid}`, { channel_ids: next });
+    }
     f.reset();
     await loadChannels();
-    renderProfileChannels();
+    await loadProfiles();
+    renderProfileFormChannels();
   } catch (err) { errEl.textContent = err.message; }
 });
 
@@ -228,7 +372,7 @@ document.getElementById('profile-form').addEventListener('submit', async (e) => 
       channel_ids,
     });
     f.reset();
-    renderProfileChannels();
+    renderProfileFormChannels();
     await loadProfiles();
   } catch (err) { errEl.textContent = err.message; }
 });
@@ -236,7 +380,7 @@ document.getElementById('profile-form').addEventListener('submit', async (e) => 
 (async function init() {
   await loadChannels();
   await loadProfiles();
-  renderProfileChannels();
+  renderProfileFormChannels();
 })();
 </script>
 </body>
