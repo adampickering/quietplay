@@ -12,7 +12,7 @@ async function main() {
   await app.register(clientRoutes);
   await app.register(adminRoutes, { prefix: '/admin' });
 
-  const port = Number(process.env.PORT ?? 4000);
+  const port = Number(process.env.PORT ?? 8787);
   await app.listen({ port, host: '0.0.0.0' });
 }
 
