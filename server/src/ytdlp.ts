@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 
 const FORMAT = 'best[height<=1080][ext=mp4]/best[height<=1080]';
-const TIMEOUT_MS = 5000;
+const TIMEOUT_MS = 25_000;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 export class ResolveError extends Error {}
