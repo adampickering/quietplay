@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QuietPlay Admin</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --fg: #111;
+    --bg: #fafafa;
+    --muted: #666;
+    --border: #ddd;
+    --accent: #0366d6;
+    --danger: #b00020;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #eee; --bg: #111; --muted: #999; --border: #333; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 24px; }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  nav button { background: none; border: 0; font: inherit; color: var(--muted); padding: 8px 0; cursor: pointer; border-bottom: 2px solid transparent; margin-right: 16px; }
+  nav button.active { color: var(--fg); border-bottom-color: var(--accent); }
+  main { padding: 24px; max-width: 1000px; }
+  section { display: none; }
+  section.active { display: block; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 14px; }
+  th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 600px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--bg), var(--fg) 3%); }
+  form .full { grid-column: span 2; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input[type=text], input[type=number], select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit; }
+  button.primary { padding: 8px 16px; background: var(--accent); color: white; border: 0; border-radius: 4px; font: inherit; cursor: pointer; }
+  button.link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+  button.danger { background: none; border: 0; color: var(--danger); cursor: pointer; font: inherit; padding: 0; }
+  .channel-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; }
+  .pill input { margin: 0; }
+  .err { color: var(--danger); font-size: 13px; margin: 8px 0; }
+  .empty { color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>QuietPlay Admin</h1>
+  <nav>
+    <button id="tab-channels" class="active">Channels</button>
+    <button id="tab-profiles">Profiles</button>
+  </nav>
+</header>
+<main>
+  <section id="section-channels" class="active">
+    <h2>Channels</h2>
+    <table id="channels-table">
+      <thead><tr><th>Title</th><th>YouTube ID</th><th>Active</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <h3>Add channel</h3>
+    <form id="channel-form">
+      <label class="full">Title<input name="title" type="text" required /></label>
+      <label class="full">YouTube channel ID<input name="youtube_channel_id" type="text" required placeholder="UCxxxxxxxxxxxxxxxxx" /></label>
+      <label class="full">Thumbnail URL (optional)<input name="thumbnail_url" type="text" /></label>
+      <div class="full"><button class="primary" type="submit">Add</button><span class="err" id="channel-err"></span></div>
+    </form>
+  </section>
+
+  <section id="section-profiles">
+    <h2>Profiles <span id="profile-count" class="empty"></span></h2>
+    <table id="profiles-table">
+      <thead><tr><th>#</th><th>Name</th><th>Channels</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <h3>Add profile</h3>
+    <form id="profile-form">
+      <label>Name<input name="name" type="text" required /></label>
+      <label>Position<select name="position"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select></label>
+      <div class="full">
+        <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">Channels</div>
+        <div class="channel-pills" id="profile-channels"></div>
+      </div>
+      <div class="full"><button class="primary" type="submit">Add</button><span class="err" id="profile-err"></span></div>
+    </form>
+  </section>
+</main>
+
+<script>
+const api = {
+  async get(path) { return (await fetch(path)).json(); },
+  async post(path, body) {
+    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    return res.json();
+  },
+  async patch(path, body) {
+    const res = await fetch(path, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    return res.json();
+  },
+  async del(path) {
+    const res = await fetch(path, { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  },
+};
+
+const tabs = {
+  channels: { btn: document.getElementById('tab-channels'), section: document.getElementById('section-channels') },
+  profiles: { btn: document.getElementById('tab-profiles'), section: document.getElementById('section-profiles') },
+};
+function showTab(name) {
+  for (const [k, t] of Object.entries(tabs)) {
+    t.btn.classList.toggle('active', k === name);
+    t.section.classList.toggle('active', k === name);
+  }
+}
+tabs.channels.btn.addEventListener('click', () => showTab('channels'));
+tabs.profiles.btn.addEventListener('click', () => { showTab('profiles'); renderProfileChannels(); });
+
+let channels = [];
+let profiles = [];
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function loadChannels() {
+  channels = await api.get('/admin/api/channels');
+  const tbody = document.querySelector('#channels-table tbody');
+  tbody.innerHTML = '';
+  if (channels.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No channels yet.</td></tr>';
+    return;
+  }
+  for (const c of channels) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(c.title)}</td>
+      <td><code>${esc(c.youtube_channel_id)}</code></td>
+      <td>${c.is_active ? 'yes' : 'no'}</td>
+      <td><button class="link" data-id="${c.id}" data-active="${c.is_active}">${c.is_active ? 'Deactivate' : 'Activate'}</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll('button.link').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const nextActive = btn.dataset.active !== 'true';
+      await api.patch(`/admin/api/channels/${id}`, { is_active: nextActive });
+      await loadChannels();
+      renderProfileChannels();
+    });
+  });
+}
+
+async function loadProfiles() {
+  profiles = await api.get('/admin/api/profiles');
+  document.getElementById('profile-count').textContent = `(${profiles.length} / 3)`;
+  const tbody = document.querySelector('#profiles-table tbody');
+  tbody.innerHTML = '';
+  if (profiles.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No profiles yet.</td></tr>';
+    return;
+  }
+  const channelName = new Map(channels.map(c => [c.id, c.title]));
+  for (const p of profiles) {
+    const names = p.channel_ids.map(id => channelName.get(id) || id).join(', ');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${p.position}</td>
+      <td>${esc(p.name)}</td>
+      <td>${esc(names) || '<span class="empty">none</span>'}</td>
+      <td><button class="danger" data-id="${p.id}">Delete</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll('button.danger').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this profile?')) return;
+      await api.del(`/admin/api/profiles/${btn.dataset.id}`);
+      await loadProfiles();
+    });
+  });
+}
+
+function renderProfileChannels() {
+  const container = document.getElementById('profile-channels');
+  container.innerHTML = '';
+  const active = channels.filter(c => c.is_active);
+  if (active.length === 0) {
+    container.innerHTML = '<span class="empty">Add active channels first.</span>';
+    return;
+  }
+  for (const c of active) {
+    const label = document.createElement('label');
+    label.className = 'pill';
+    label.innerHTML = `<input type="checkbox" value="${c.id}" /> ${esc(c.title)}`;
+    container.appendChild(label);
+  }
+}
+
+document.getElementById('channel-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const errEl = document.getElementById('channel-err');
+  errEl.textContent = '';
+  try {
+    await api.post('/admin/api/channels', {
+      title: f.title.value.trim(),
+      youtube_channel_id: f.youtube_channel_id.value.trim(),
+      thumbnail_url: f.thumbnail_url.value.trim() || null,
+    });
+    f.reset();
+    await loadChannels();
+    renderProfileChannels();
+  } catch (err) { errEl.textContent = err.message; }
+});
+
+document.getElementById('profile-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const errEl = document.getElementById('profile-err');
+  errEl.textContent = '';
+  const channel_ids = Array.from(document.querySelectorAll('#profile-channels input:checked')).map(i => i.value);
+  try {
+    await api.post('/admin/api/profiles', {
+      name: f.name.value.trim(),
+      position: Number(f.position.value),
+      channel_ids,
+    });
+    f.reset();
+    renderProfileChannels();
+    await loadProfiles();
+  } catch (err) { errEl.textContent = err.message; }
+});
+
+(async function init() {
+  await loadChannels();
+  await loadProfiles();
+  renderProfileChannels();
+})();
+</script>
+</body>
+</html>
