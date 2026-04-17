@@ -2,7 +2,87 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { request } from 'undici';
 import { pool } from '../db.js';
+
+const LOOKUP_TIMEOUT_MS = 5000;
+const UC_ID = /UC[A-Za-z0-9_\-]{22}/;
+const META_CHANNEL_ID_RE = /<meta\s+itemprop="(?:channelId|identifier)"\s+content="(UC[A-Za-z0-9_\-]{22})"/i;
+const EXTERNAL_ID_RE = /"externalId":"(UC[A-Za-z0-9_\-]{22})"/;
+const CANONICAL_RE = /<link\s+rel="canonical"\s+href="https?:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_\-]{22})"/i;
+const OG_TITLE_RE = /<meta\s+property="og:title"\s+content="([^"]+)"/i;
+const OG_IMAGE_RE = /<meta\s+property="og:image"\s+content="([^"]+)"/i;
+const DIRECT_CHANNEL_RE = /^UC[A-Za-z0-9_\-]{22}$/;
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+async function lookupChannel(rawInput: string): Promise<{
+  youtube_channel_id: string;
+  title: string;
+  thumbnail_url: string | null;
+}> {
+  const input = rawInput.trim();
+  if (!input) throw new Error('empty input');
+
+  if (DIRECT_CHANNEL_RE.test(input)) {
+    return fetchChannelMeta(`https://www.youtube.com/channel/${input}`, input);
+  }
+
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error('not a valid URL or channel ID');
+  }
+  if (!/(^|\.)youtube\.com$/.test(url.hostname) && url.hostname !== 'youtu.be') {
+    throw new Error('not a YouTube URL');
+  }
+
+  const channelMatch = url.pathname.match(/^\/channel\/(UC[A-Za-z0-9_\-]{22})/);
+  if (channelMatch) {
+    return fetchChannelMeta(`https://www.youtube.com${url.pathname}`, channelMatch[1]);
+  }
+
+  return fetchChannelMeta(url.toString(), null);
+}
+
+async function fetchChannelMeta(pageUrl: string, knownId: string | null): Promise<{
+  youtube_channel_id: string;
+  title: string;
+  thumbnail_url: string | null;
+}> {
+  const res = await request(pageUrl, {
+    headersTimeout: LOOKUP_TIMEOUT_MS,
+    bodyTimeout: LOOKUP_TIMEOUT_MS,
+    maxRedirections: 5,
+    headers: { 'user-agent': 'Mozilla/5.0 QuietPlayAdmin' },
+  });
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    throw new Error(`youtube responded ${res.statusCode}`);
+  }
+  const body = await res.body.text();
+
+  const id =
+    knownId ??
+    body.match(META_CHANNEL_ID_RE)?.[1] ??
+    body.match(CANONICAL_RE)?.[1] ??
+    body.match(EXTERNAL_ID_RE)?.[1];
+  if (!id || !UC_ID.test(id)) throw new Error('could not find channel ID on page');
+
+  const rawTitle = body.match(OG_TITLE_RE)?.[1];
+  const rawImage = body.match(OG_IMAGE_RE)?.[1];
+  const title = rawTitle ? decodeEntities(rawTitle).replace(/\s*-\s*YouTube$/, '').trim() : id;
+  const thumbnail_url = rawImage ? decodeEntities(rawImage) : null;
+
+  return { youtube_channel_id: id, title, thumbnail_url };
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const htmlPath = join(here, '..', 'admin', 'index.html');
@@ -58,6 +138,18 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/', async (_req, reply) => {
     const html = await readFile(htmlPath, 'utf8');
     return reply.type('text/html; charset=utf-8').send(html);
+  });
+
+  // Channel URL → metadata lookup
+  app.post<{ Body: { url: string } }>('/api/channels/lookup', async (req, reply) => {
+    const { url } = req.body ?? ({} as { url: string });
+    if (!url?.trim()) return reply.code(400).send({ error: 'url required' });
+    try {
+      const meta = await lookupChannel(url);
+      return meta;
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : 'lookup failed' });
+    }
   });
 
   // Channels
