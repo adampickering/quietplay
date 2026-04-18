@@ -15,7 +15,7 @@ enum SortMode: String {
 
 struct LibraryView: View {
     @Bindable var app: AppState
-    let onSelect: (LibraryVideo, LibraryChannel) -> Void
+    let onSelect: (LibraryVideo, LibraryChannel, [LibraryChannel]) -> Void
 
     @State private var channels: [LibraryChannel] = []
     @State private var focusedChannelID: UUID?
@@ -49,7 +49,7 @@ struct LibraryView: View {
                             focusedID: $focusedChannelID,
                             hasNew: hasNew,
                             markSeen: markSeen,
-                            onPlay: onSelect
+                            onPlay: { video, channel in onSelect(video, channel, channels) }
                         )
                         .frame(width: geo.size.width * paneSplit)
 
@@ -64,7 +64,7 @@ struct LibraryView: View {
                             VideoGrid(
                                 videos: focusedChannel?.videos ?? []
                             ) { video in
-                                if let ch = focusedChannel { onSelect(video, ch) }
+                                if let ch = focusedChannel { onSelect(video, ch, channels) }
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -83,7 +83,7 @@ struct LibraryView: View {
                         searchPresented = false
                         searchText = ""
                         if let newest = channel.videos.first {
-                            onSelect(newest, channel)
+                            onSelect(newest, channel, channels)
                         }
                     },
                     onDismiss: {

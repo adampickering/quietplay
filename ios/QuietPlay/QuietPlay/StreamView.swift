@@ -40,7 +40,8 @@ struct StreamView: View {
             if app.pickerPresented {
                 PickerOverlay(
                     title: app.pickerTitle,
-                    videos: app.pickerVideos,
+                    candidates: app.pickerCandidates,
+                    showChannelName: shouldShowPickerChannelName,
                     onSelect: { app.pickerSelect($0) },
                     onBack: onExitToLibrary
                 )
@@ -86,6 +87,15 @@ struct StreamView: View {
 
     private func handleExit() {
         onExitToLibrary()
+    }
+
+    // When all candidates are from the same channel as the current one we can
+    // hide the channel label (kid already knows what they're watching). When
+    // the picker falls back to other channels we show it so "Thomas" and
+    // "Connor Creates" are distinguishable.
+    private var shouldShowPickerChannelName: Bool {
+        guard let cur = app.currentChannel?.id else { return true }
+        return app.pickerCandidates.contains(where: { $0.channel.id != cur })
     }
 
     private var startChip: some View {
@@ -135,8 +145,9 @@ private struct MessageView: View {
 
 private struct PickerOverlay: View {
     let title: String
-    let videos: [LibraryVideo]
-    let onSelect: (LibraryVideo) -> Void
+    let candidates: [AppState.PickerCandidate]
+    let showChannelName: Bool
+    let onSelect: (AppState.PickerCandidate) -> Void
     let onBack: () -> Void
 
     var body: some View {
@@ -149,14 +160,17 @@ private struct PickerOverlay: View {
                 Text(title)
                     .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(.white.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 48)
 
-                if videos.isEmpty {
-                    // Channel exhausted — only Back-to-Library remains.
-                    EmptyView()
-                } else {
+                if !candidates.isEmpty {
                     HStack(spacing: 28) {
-                        ForEach(videos) { video in
-                            PickerCard(video: video, onSelect: { onSelect(video) })
+                        ForEach(candidates) { candidate in
+                            PickerCard(
+                                candidate: candidate,
+                                showChannelName: showChannelName,
+                                onSelect: { onSelect(candidate) }
+                            )
                         }
                     }
                     .padding(.horizontal, 48)
@@ -172,7 +186,8 @@ private struct PickerOverlay: View {
 }
 
 private struct PickerCard: View {
-    let video: LibraryVideo
+    let candidate: AppState.PickerCandidate
+    let showChannelName: Bool
     let onSelect: () -> Void
     @FocusState private var focused: Bool
 
@@ -186,7 +201,7 @@ private struct PickerCard: View {
         VStack(alignment: .leading, spacing: 12) {
             Color.white.opacity(0.05)
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .overlay(Thumb(url: video.thumbnailUrl))
+                .overlay(Thumb(url: candidate.video.thumbnailUrl))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -195,12 +210,18 @@ private struct PickerCard: View {
                 .shadow(color: .black.opacity(focused ? 0.55 : 0.3), radius: focused ? 22 : 10, x: 0, y: focused ? 12 : 5)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(video.title)
+                if showChannelName {
+                    Text(candidate.channel.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(focused ? 0.75 : 0.5))
+                        .lineLimit(1)
+                }
+                Text(candidate.video.title)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white.opacity(focused ? 1.0 : 0.88))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(Self.relative.localizedString(for: video.publishedAt, relativeTo: Date()))
+                Text(Self.relative.localizedString(for: candidate.video.publishedAt, relativeTo: Date()))
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(focused ? 0.65 : 0.4))
             }

@@ -51,8 +51,8 @@ struct RootView: View {
 
     private var libraryStack: some View {
         NavigationStack(path: $path) {
-            LibraryView(app: app) { video, channel in
-                app.playInLibrary(video: video, channel: channel)
+            LibraryView(app: app) { video, channel, allChannels in
+                app.playInLibrary(video: video, channel: channel, allChannels: allChannels)
                 if path.isEmpty { path.append(.stream) }
             }
             .navigationDestination(for: Route.self) { route in

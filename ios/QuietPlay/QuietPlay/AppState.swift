@@ -33,13 +33,20 @@ final class AppState {
     var currentChannel: LibraryChannel?
     var channelVideos: [LibraryVideo] = []
     var channelIndex: Int = 0
+    var libraryChannels: [LibraryChannel] = []
 
     var overlayVisible: Bool = false
     var isLoading: Bool = false
 
     // Picker state
+    struct PickerCandidate: Identifiable, Hashable {
+        var id: String { video.youtubeVideoId }
+        let video: LibraryVideo
+        let channel: LibraryChannel
+    }
+
     var pickerPresented: Bool = false
-    var pickerVideos: [LibraryVideo] = []
+    var pickerCandidates: [PickerCandidate] = []
     var pickerTitle: String = ""
 
     @ObservationIgnored private var consecutiveSkips: Int = 0
@@ -169,9 +176,10 @@ final class AppState {
 
     // MARK: Entry point from Library
 
-    func playInLibrary(video: LibraryVideo, channel: LibraryChannel) {
+    func playInLibrary(video: LibraryVideo, channel: LibraryChannel, allChannels: [LibraryChannel]) {
         currentChannel = channel
         channelVideos = channel.videos
+        libraryChannels = allChannels
         pickerPresented = false
 
         let idx = channel.videos.firstIndex(where: { $0.youtubeVideoId == video.youtubeVideoId }) ?? 0
@@ -228,18 +236,41 @@ final class AppState {
     func showPicker() {
         player.pause()
 
-        // Next 3 same-channel unwatched videos (older than current).
-        let tail = channelVideos.dropFirst(channelIndex + 1)
-        let unwatched = tail.filter { !WatchedVideoStore.isWatched($0.youtubeVideoId) }
-        pickerVideos = Array(unwatched.prefix(3))
-
-        if pickerVideos.isEmpty {
-            let name = currentChannel?.title ?? "this channel"
-            pickerTitle = "You've seen all of \(name)"
-        } else {
-            pickerTitle = "Up next"
+        guard let channel = currentChannel else {
+            pickerCandidates = []
+            pickerTitle = ""
+            pickerPresented = true
+            return
         }
 
+        // 1) Same-channel unwatched videos older than current, max 3.
+        let tail = channelVideos.dropFirst(channelIndex + 1)
+        let sameChannel = tail
+            .filter { !WatchedVideoStore.isWatched($0.youtubeVideoId) }
+            .prefix(3)
+            .map { PickerCandidate(video: $0, channel: channel) }
+
+        if !sameChannel.isEmpty {
+            pickerCandidates = Array(sameChannel)
+            pickerTitle = "Up next"
+            pickerPresented = true
+            return
+        }
+
+        // 2) Channel exhausted → 3 newest-unwatched from other channels.
+        let otherCandidates = libraryChannels
+            .filter { $0.id != channel.id }
+            .flatMap { ch in ch.videos.map { PickerCandidate(video: $0, channel: ch) } }
+            .filter { !WatchedVideoStore.isWatched($0.video.youtubeVideoId) }
+            .sorted { $0.video.publishedAt > $1.video.publishedAt }
+            .prefix(3)
+
+        pickerCandidates = Array(otherCandidates)
+        if pickerCandidates.isEmpty {
+            pickerTitle = "You've watched everything new"
+        } else {
+            pickerTitle = "You've seen all of \(channel.title) — try something else"
+        }
         pickerPresented = true
     }
 
@@ -247,12 +278,14 @@ final class AppState {
         pickerPresented = false
     }
 
-    func pickerSelect(_ video: LibraryVideo) {
-        guard let idx = channelVideos.firstIndex(where: { $0.youtubeVideoId == video.youtubeVideoId }) else {
-            return
-        }
+    func pickerSelect(_ candidate: PickerCandidate) {
         pickerPresented = false
-        startChannel(at: idx)
+        if candidate.channel.id == currentChannel?.id,
+           let idx = channelVideos.firstIndex(where: { $0.youtubeVideoId == candidate.video.youtubeVideoId }) {
+            startChannel(at: idx)
+        } else {
+            playInLibrary(video: candidate.video, channel: candidate.channel, allChannels: libraryChannels)
+        }
     }
 
     // MARK: Playback engine (channel-scoped)
