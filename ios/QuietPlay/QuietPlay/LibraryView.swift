@@ -18,6 +18,7 @@ struct LibraryView: View {
     @State private var focusedChannelID: UUID?
     @State private var loadError: Bool = false
     @State private var seenAt: [String: Date] = ChannelSeenStore.load()
+    @State private var watched: Set<String> = WatchedVideoStore.load()
     @State private var searchPresented: Bool = false
     @State private var searchText: String = ""
     @AppStorage("library.sort") private var sortRaw: String = SortMode.newest.rawValue
@@ -45,6 +46,7 @@ struct LibraryView: View {
                             channels: visibleChannels,
                             focusedID: $focusedChannelID,
                             hasNew: hasNew,
+                            progress: progress,
                             markSeen: markSeen,
                             onPlay: { video, channel in onSelect(video, channel, channels) }
                         )
@@ -74,6 +76,7 @@ struct LibraryView: View {
                     channels: channels,
                     text: $searchText,
                     hasNew: hasNew,
+                    progress: progress,
                     onPick: { channel in
                         focusedChannelID = channel.id
                         markSeen(channel.id)
@@ -100,6 +103,11 @@ struct LibraryView: View {
         .animation(.easeInOut(duration: 0.45), value: focusedChannelID)
         .task(id: app.currentProfile?.id) {
             await load()
+        }
+        .onAppear {
+            // Pick up any videos that got marked-watched while we were
+            // away in Stream mode so the avatar progress rings are fresh.
+            watched = WatchedVideoStore.load()
         }
     }
 
@@ -144,6 +152,12 @@ struct LibraryView: View {
         guard let latest = channel.videos.first?.publishedAt else { return false }
         let last = seenAt[channel.id.uuidString] ?? .distantPast
         return latest > last
+    }
+
+    private func progress(_ channel: LibraryChannel) -> Double {
+        guard !channel.videos.isEmpty else { return 0 }
+        let w = channel.videos.reduce(0) { watched.contains($1.youtubeVideoId) ? $0 + 1 : $0 }
+        return Double(w) / Double(channel.videos.count)
     }
 
     private func markSeen(_ channelID: UUID) {
@@ -317,6 +331,7 @@ private struct SearchOverlay: View {
     let channels: [LibraryChannel]
     @Binding var text: String
     let hasNew: (LibraryChannel) -> Bool
+    let progress: (LibraryChannel) -> Double
     let onPick: (LibraryChannel) -> Void
     let onDismiss: () -> Void
 
@@ -384,6 +399,7 @@ private struct SearchOverlay: View {
                                 SearchResultRow(
                                     channel: channel,
                                     hasNew: hasNew(channel),
+                                    progress: progress(channel),
                                     onPick: { onPick(channel) }
                                 )
                             }
@@ -432,6 +448,7 @@ private struct SearchDismissButton: View {
 private struct SearchResultRow: View {
     let channel: LibraryChannel
     let hasNew: Bool
+    let progress: Double
     let onPick: () -> Void
     @FocusState private var focused: Bool
 
@@ -444,10 +461,7 @@ private struct SearchResultRow: View {
 
     var body: some View {
         HStack(spacing: 18) {
-            Color.white.opacity(0.06)
-                .frame(width: 56, height: 56)
-                .overlay(ThumbnailImage(url: channel.thumbnailUrl))
-                .clipShape(Circle())
+            ChannelAvatar(url: channel.thumbnailUrl, size: 56, progress: progress)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(channel.title)
@@ -494,6 +508,7 @@ private struct ChannelList: View {
     let channels: [LibraryChannel]
     @Binding var focusedID: UUID?
     let hasNew: (LibraryChannel) -> Bool
+    let progress: (LibraryChannel) -> Double
     let markSeen: (UUID) -> Void
     let onPlay: (LibraryVideo, LibraryChannel) -> Void
 
@@ -517,6 +532,7 @@ private struct ChannelList: View {
                             channel: channel,
                             focusedID: $focusedID,
                             hasNew: hasNew(channel),
+                            progress: progress(channel),
                             onSeen: { markSeen(channel.id) },
                             onPlay: { onPlay($0, channel) }
                         )
@@ -533,6 +549,7 @@ private struct ChannelRowButton: View {
     let channel: LibraryChannel
     @Binding var focusedID: UUID?
     let hasNew: Bool
+    let progress: Double
     let onSeen: () -> Void
     let onPlay: (LibraryVideo) -> Void
     @FocusState private var focused: Bool
@@ -547,10 +564,7 @@ private struct ChannelRowButton: View {
                 .padding(.vertical, 4)
 
             HStack(spacing: 14) {
-                Color.white.opacity(0.06)
-                    .frame(width: 48, height: 48)
-                    .overlay(ThumbnailImage(url: channel.thumbnailUrl))
-                    .clipShape(Circle())
+                ChannelAvatar(url: channel.thumbnailUrl, size: 48, progress: progress)
 
                 Text(channel.title)
                     .font(.system(size: 19, weight: .medium))
@@ -696,6 +710,43 @@ private struct VideoCardButton: View {
 }
 
 // MARK: - Helpers
+
+/// Circular channel avatar with an optional watched-progress ring. The ring
+/// is hidden entirely at 0% so "unwatched" channels stay visually quiet;
+/// it appears as soon as the kid has finished a video, and fills to a
+/// complete circle once the channel is fully consumed — a calm visual
+/// earn-it cue without any counters.
+private struct ChannelAvatar: View {
+    let url: String?
+    let size: CGFloat
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Color.white.opacity(0.06)
+                .frame(width: size, height: size)
+                .overlay(ThumbnailImage(url: url))
+                .clipShape(Circle())
+
+            if progress > 0 {
+                // Faint background track.
+                Circle()
+                    .stroke(.white.opacity(0.18), lineWidth: 2.5)
+                    .frame(width: size + 4, height: size + 4)
+                // Arc for the watched fraction.
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        .white.opacity(0.82),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: size + 4, height: size + 4)
+                    .animation(Motion.focusSpring, value: progress)
+            }
+        }
+    }
+}
 
 private struct ThumbnailImage: View {
     let url: String?
