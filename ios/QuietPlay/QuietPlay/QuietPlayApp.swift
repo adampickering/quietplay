@@ -20,6 +20,7 @@ struct RootView: View {
     enum Route: Hashable { case stream }
 
     @State private var path: [Route] = []
+    @State private var showTutorial: Bool = !TutorialFlag.hasSeen()
 
     var body: some View {
         ZStack {
@@ -44,9 +45,22 @@ struct RootView: View {
                         .transition(.opacity)
                 }
             }
+
+            // First-run tutorial: only after bootstrap finishes and the
+            // user has an actual profile to look at. Dismiss persists to
+            // UserDefaults so it never shows again on this device.
+            if showTutorial, case .ready = app.bootstrapState,
+               !app.profilePickerPresented {
+                TutorialView {
+                    TutorialFlag.markSeen()
+                    showTutorial = false
+                }
+                .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: app.bootstrapState)
         .animation(.easeInOut(duration: 0.25), value: app.profilePickerPresented)
+        .animation(.easeInOut(duration: 0.25), value: showTutorial)
     }
 
     private var libraryStack: some View {
