@@ -29,7 +29,7 @@
     <key>UIUserInterfaceStyle</key>
     <string>Dark</string>
     <key>QuietPlayAPIBaseURL</key>
-    <string>http://localhost:8787</string>
+    <string>http://192.168.0.143:8787</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>
