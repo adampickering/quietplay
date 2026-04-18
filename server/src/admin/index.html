@@ -64,7 +64,7 @@
   <section id="section-channels" class="active">
     <h2>Channels</h2>
     <table id="channels-table">
-      <thead><tr><th>Title</th><th>YouTube ID</th><th>Active</th><th></th></tr></thead>
+      <thead><tr><th>Title</th><th>YouTube ID</th><th>Sort</th><th>Active</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
 
@@ -79,6 +79,13 @@
       <label>Title<input name="title" type="text" required /></label>
       <label>YouTube channel ID<input name="youtube_channel_id" type="text" required placeholder="UCxxxxxxxxxxxxxxxxx" /></label>
       <label class="full">Thumbnail URL (optional)<input name="thumbnail_url" type="text" /></label>
+      <label>Video sort
+        <select name="default_video_sort">
+          <option value="newest">Newest first (vlog / episodic)</option>
+          <option value="oldest">Oldest first (serial / start from #1)</option>
+        </select>
+      </label>
+      <div></div>
       <div class="full">
         <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">Add to profiles (optional)</div>
         <div class="channel-pills" id="channel-form-profiles"></div>
@@ -153,21 +160,28 @@ async function loadChannels() {
   const tbody = document.querySelector('#channels-table tbody');
   tbody.innerHTML = '';
   if (channels.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty">No channels yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No channels yet.</td></tr>';
     renderChannelFormProfiles();
     return;
   }
   for (const c of channels) {
+    const sort = c.default_video_sort || 'newest';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${esc(c.title)}</td>
       <td><code>${esc(c.youtube_channel_id)}</code></td>
+      <td>
+        <select data-action="sort" data-id="${c.id}">
+          <option value="newest" ${sort === 'newest' ? 'selected' : ''}>Newest first</option>
+          <option value="oldest" ${sort === 'oldest' ? 'selected' : ''}>Oldest first</option>
+        </select>
+      </td>
       <td>${c.is_active ? 'yes' : 'no'}</td>
-      <td><button class="link" data-id="${c.id}" data-active="${c.is_active}">${c.is_active ? 'Deactivate' : 'Activate'}</button></td>
+      <td><button class="link" data-action="active" data-id="${c.id}" data-active="${c.is_active}">${c.is_active ? 'Deactivate' : 'Activate'}</button></td>
     `;
     tbody.appendChild(tr);
   }
-  tbody.querySelectorAll('button.link').forEach(btn => {
+  tbody.querySelectorAll('button[data-action=active]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       const nextActive = btn.dataset.active !== 'true';
@@ -175,6 +189,11 @@ async function loadChannels() {
       await loadChannels();
       await loadProfiles();
       renderProfileFormChannels();
+    });
+  });
+  tbody.querySelectorAll('select[data-action=sort]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      await api.patch(`/admin/api/channels/${sel.dataset.id}`, { default_video_sort: sel.value });
     });
   });
   renderChannelFormProfiles();
@@ -345,6 +364,7 @@ document.getElementById('channel-form').addEventListener('submit', async (e) => 
       title: f.title.value.trim(),
       youtube_channel_id: f.youtube_channel_id.value.trim(),
       thumbnail_url: f.thumbnail_url.value.trim() || null,
+      default_video_sort: f.default_video_sort.value,
     });
     for (const pid of selectedProfiles) {
       const profile = profiles.find(p => p.id === pid);

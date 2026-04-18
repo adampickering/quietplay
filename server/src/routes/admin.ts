@@ -93,6 +93,7 @@ interface ChannelRow {
   title: string;
   thumbnail_url: string | null;
   is_active: boolean;
+  default_video_sort: 'newest' | 'oldest';
   created_at: string;
 }
 
@@ -166,18 +167,28 @@ export async function adminRoutes(app: FastifyInstance) {
       title: string;
       thumbnail_url?: string | null;
       is_active?: boolean;
+      default_video_sort?: 'newest' | 'oldest';
     };
   }>('/api/channels', async (req, reply) => {
-    const { youtube_channel_id, title, thumbnail_url, is_active } = req.body;
+    const { youtube_channel_id, title, thumbnail_url, is_active, default_video_sort } = req.body;
     if (!youtube_channel_id?.trim() || !title?.trim()) {
       return reply.code(400).send({ error: 'youtube_channel_id and title are required' });
     }
+    if (default_video_sort && !['newest', 'oldest'].includes(default_video_sort)) {
+      return reply.code(400).send({ error: 'default_video_sort must be newest or oldest' });
+    }
     try {
       const { rows } = await pool.query<ChannelRow>(
-        `insert into channels (youtube_channel_id, title, thumbnail_url, is_active)
-         values ($1, $2, $3, coalesce($4, true))
+        `insert into channels (youtube_channel_id, title, thumbnail_url, is_active, default_video_sort)
+         values ($1, $2, $3, coalesce($4, true), coalesce($5, 'newest'))
          returning *`,
-        [youtube_channel_id.trim(), title.trim(), thumbnail_url ?? null, is_active ?? null],
+        [
+          youtube_channel_id.trim(),
+          title.trim(),
+          thumbnail_url ?? null,
+          is_active ?? null,
+          default_video_sort ?? null,
+        ],
       );
       return rows[0];
     } catch (err: any) {
@@ -190,18 +201,33 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.patch<{
     Params: { id: string };
-    Body: { title?: string; thumbnail_url?: string | null; is_active?: boolean };
+    Body: {
+      title?: string;
+      thumbnail_url?: string | null;
+      is_active?: boolean;
+      default_video_sort?: 'newest' | 'oldest';
+    };
   }>('/api/channels/:id', async (req, reply) => {
     const { id } = req.params;
-    const { title, thumbnail_url, is_active } = req.body;
+    const { title, thumbnail_url, is_active, default_video_sort } = req.body;
+    if (default_video_sort && !['newest', 'oldest'].includes(default_video_sort)) {
+      return reply.code(400).send({ error: 'default_video_sort must be newest or oldest' });
+    }
     const { rows } = await pool.query<ChannelRow>(
       `update channels
          set title = coalesce($2, title),
              thumbnail_url = coalesce($3, thumbnail_url),
-             is_active = coalesce($4, is_active)
+             is_active = coalesce($4, is_active),
+             default_video_sort = coalesce($5, default_video_sort)
        where id = $1
        returning *`,
-      [id, title ?? null, thumbnail_url ?? null, is_active ?? null],
+      [
+        id,
+        title ?? null,
+        thumbnail_url ?? null,
+        is_active ?? null,
+        default_video_sort ?? null,
+      ],
     );
     if (rows.length === 0) return reply.code(404).send({ error: 'not found' });
     return rows[0];
