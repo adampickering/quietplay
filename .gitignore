@@ -10,3 +10,7 @@ admin-ui/.next
 xcuserdata/
 *.xcuserstate
 DerivedData/
+
+ios/.build/
+ios/.swiftpm/
+ios/Package.resolved
