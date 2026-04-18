@@ -15,6 +15,16 @@ struct StreamView: View {
             PlayerLayerView(player: app.player)
                 .ignoresSafeArea()
 
+            // Pause-blur: when playback is paused, a soft material pane
+            // covers the frame so the paused state reads as "intentional"
+            // and the overlay/centered play icon stay crisp on busy frames.
+            if app.isPaused && app.mode == .playing {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
+
             if showSpinner && app.isLoading {
                 ProgressView()
                     .progressViewStyle(.circular)
@@ -308,7 +318,7 @@ private struct PickerCard: View {
         .focused($focused)
         .onTapGesture(perform: onSelect)
         .scaleEffect(focused ? 1.05 : 1.0)
-        .animation(.easeOut(duration: 0.18), value: focused)
+        .animation(Motion.focusSpring, value: focused)
     }
 }
 
@@ -339,7 +349,7 @@ private struct BackToLibraryButton: View {
         .focusEffectDisabled()
         .focused($focused)
         .onTapGesture(perform: action)
-        .animation(.easeOut(duration: 0.15), value: focused)
+        .animation(Motion.focusSpring, value: focused)
     }
 }
 

@@ -89,7 +89,7 @@ struct RetryView: View {
                 .focusEffectDisabled()
                 .focused($focused)
                 .onTapGesture(perform: onRetry)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .animation(Motion.focusSpring, value: focused)
             }
         }
     }
@@ -215,6 +215,6 @@ private struct ProfileCard: View {
         .focused($focused)
         .onTapGesture(perform: onPick)
         .scaleEffect(focused ? 1.05 : 1.0)
-        .animation(.easeOut(duration: 0.18), value: focused)
+        .animation(Motion.focusSpring, value: focused)
     }
 }

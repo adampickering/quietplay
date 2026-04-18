@@ -1,11 +1,8 @@
 import SwiftUI
 
 private let paneSplit: CGFloat = 0.28
-private let bgGradient = LinearGradient(
-    colors: [Color(red: 0.045, green: 0.045, blue: 0.05), .black],
-    startPoint: .top,
-    endPoint: .bottom
-)
+private let baseTop = Color(red: 0.045, green: 0.045, blue: 0.05)
+private let baseBottom = Color.black
 private let dividerColor = Color.white.opacity(0.08)
 
 enum SortMode: String {
@@ -97,12 +94,24 @@ struct LibraryView: View {
                 .transition(.opacity)
             }
         }
-        .background(bgGradient)
+        .background(backgroundGradient)
         .ignoresSafeArea()
         .animation(.easeOut(duration: 0.2), value: searchPresented)
+        .animation(.easeInOut(duration: 0.45), value: focusedChannelID)
         .task(id: app.currentProfile?.id) {
             await load()
         }
+    }
+
+    private var backgroundGradient: LinearGradient {
+        let tint = focusedChannel.map { ambientTint(for: $0.id) } ?? baseTop
+        // Mix the channel tint into the top half; bottom fades to pure
+        // black. Very low-saturation so the wash is felt, not seen.
+        return LinearGradient(
+            colors: [tint, baseBottom],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private var visibleChannels: [LibraryChannel] {
@@ -264,7 +273,7 @@ private struct SortButton: View {
             .focusEffectDisabled()
             .focused($focused)
             .onTapGesture(perform: action)
-            .animation(.easeOut(duration: 0.15), value: focused)
+            .animation(Motion.focusSpring, value: focused)
             .animation(.easeOut(duration: 0.15), value: active)
     }
 }
@@ -298,7 +307,7 @@ private struct SearchButton: View {
         .focusEffectDisabled()
         .focused($focused)
         .onTapGesture(perform: action)
-        .animation(.easeOut(duration: 0.15), value: focused)
+        .animation(Motion.focusSpring, value: focused)
     }
 }
 
@@ -416,7 +425,7 @@ private struct SearchDismissButton: View {
             .focusEffectDisabled()
             .focused($focused)
             .onTapGesture(perform: action)
-            .animation(.easeOut(duration: 0.15), value: focused)
+            .animation(Motion.focusSpring, value: focused)
     }
 }
 
@@ -475,7 +484,7 @@ private struct SearchResultRow: View {
         .focusEffectDisabled()
         .focused($focused)
         .onTapGesture(perform: onPick)
-        .animation(.easeOut(duration: 0.15), value: focused)
+        .animation(Motion.focusSpring, value: focused)
     }
 }
 
@@ -586,7 +595,7 @@ private struct ChannelRowButton: View {
                 onSeen()
             }
         }
-        .animation(.easeOut(duration: 0.15), value: focused)
+        .animation(Motion.focusSpring, value: focused)
     }
 }
 
@@ -654,7 +663,7 @@ private struct VideoCardButton: View {
             onSelect(video)
         }
         .scaleEffect(focused ? 1.035 : 1.0)
-        .animation(.easeOut(duration: 0.18), value: focused)
+        .animation(Motion.focusSpring, value: focused)
     }
 
     private var thumbnail: some View {
