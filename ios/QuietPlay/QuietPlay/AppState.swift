@@ -19,45 +19,77 @@ final class AppState {
     var mode: Mode = .loading
     var profiles: [Profile] = []
     var currentProfile: Profile?
-    var playable: [PlayableVideo] = []
-    var index: Int = 0
+
+    // Per-channel playback context (library-first model)
+    var currentChannel: LibraryChannel?
+    var channelVideos: [LibraryVideo] = []
+    var channelIndex: Int = 0
+
     var overlayVisible: Bool = false
     var isLoading: Bool = false
+
+    // Picker state
+    var pickerPresented: Bool = false
+    var pickerVideos: [LibraryVideo] = []
+    var pickerTitle: String = ""
 
     @ObservationIgnored private var consecutiveSkips: Int = 0
     @ObservationIgnored private var failureTimestamps: [Date] = []
     @ObservationIgnored private var overlayTask: Task<Void, Never>?
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var timeObserverToken: Any?
 
     init(api: QuietPlayAPI = .fromBundle()) {
         self.api = api
         self.player = AVPlayer()
         self.player.actionAtItemEnd = .none
+
+        // End-of-video → mark watched, show picker
         self.endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.advance()
+                guard let self else { return }
+                if let v = self.currentChannelVideo {
+                    WatchedVideoStore.markWatched(v.youtubeVideoId)
+                }
+                self.showPicker()
+            }
+        }
+
+        // 80%-progress → mark watched
+        let interval = CMTime(seconds: 5, preferredTimescale: 600)
+        self.timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let item = self.player.currentItem else { return }
+                let duration = item.duration.seconds
+                guard duration.isFinite, duration > 0 else { return }
+                let t = time.seconds
+                guard t.isFinite else { return }
+                if t / duration >= 0.8, let v = self.currentChannelVideo {
+                    WatchedVideoStore.markWatched(v.youtubeVideoId)
+                }
             }
         }
     }
 
     deinit {
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        if let timeObserverToken { player.removeTimeObserver(timeObserverToken) }
     }
 
-    var currentVideo: PlayableVideo? {
-        guard index >= 0, index < playable.count else { return nil }
-        return playable[index]
+    var currentChannelVideo: LibraryVideo? {
+        guard channelIndex >= 0, channelIndex < channelVideos.count else { return nil }
+        return channelVideos[channelIndex]
     }
 
     // MARK: Bootstrap
 
     func bootstrap() async {
-        mode = .loading
         do {
             let list = try await api.profiles()
             profiles = list.sorted { $0.position < $1.position }
@@ -75,29 +107,39 @@ final class AppState {
         currentProfile = profile
         consecutiveSkips = 0
         failureTimestamps.removeAll()
-        index = 0
-        do {
-            playable = try await api.playable(profileID: profile.id)
-        } catch {
-            playable = []
-        }
-        if playable.isEmpty {
-            player.replaceCurrentItem(with: nil)
-            mode = .empty
-            return
-        }
-        start(at: 0)
+        channelVideos = []
+        channelIndex = 0
+        currentChannel = nil
+        pickerPresented = false
+        player.replaceCurrentItem(with: nil)
+        mode = .loading
     }
 
-    // MARK: Navigation
+    // MARK: Entry point from Library
 
-    func advance() { start(at: index + 1) }
-    func retreat() { start(at: index - 1) }
+    func playInLibrary(video: LibraryVideo, channel: LibraryChannel) {
+        currentChannel = channel
+        channelVideos = channel.videos
+        pickerPresented = false
 
-    func seed(toVideoID videoID: String) {
-        if let i = playable.firstIndex(where: { $0.youtubeVideoId == videoID }) {
-            start(at: i)
+        let idx = channel.videos.firstIndex(where: { $0.youtubeVideoId == video.youtubeVideoId }) ?? 0
+        startChannel(at: idx)
+    }
+
+    // MARK: Remote-driven navigation
+
+    /// Swipe-right and video-end: stop and show picker.
+    func advance() {
+        if let v = currentChannelVideo {
+            WatchedVideoStore.markWatched(v.youtubeVideoId)
         }
+        showPicker()
+    }
+
+    /// Swipe-left: play previous (newer) video in the same channel.
+    func retreat() {
+        guard channelIndex > 0 else { return }
+        startChannel(at: channelIndex - 1)
     }
 
     func togglePlayPause() {
@@ -106,31 +148,76 @@ final class AppState {
 
     func toggleOverlay() {
         overlayVisible.toggle()
-        overlayTask?.cancel()
         if overlayVisible {
-            overlayTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard !Task.isCancelled else { return }
-                await MainActor.run { self?.overlayVisible = false }
-            }
+            scheduleOverlayHide()
+        } else {
+            overlayTask?.cancel()
         }
     }
 
-    // MARK: Playback algorithm
+    /// Briefly show the channel/title chip (auto-hide after 3s). Used at the
+    /// start of each new video.
+    func flashStartChip() {
+        overlayVisible = true
+        scheduleOverlayHide()
+    }
 
-    private func start(at target: Int) {
+    private func scheduleOverlayHide() {
+        overlayTask?.cancel()
+        overlayTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.overlayVisible = false }
+        }
+    }
+
+    // MARK: Picker
+
+    func showPicker() {
+        player.pause()
+
+        // Next 3 same-channel unwatched videos (older than current).
+        let tail = channelVideos.dropFirst(channelIndex + 1)
+        let unwatched = tail.filter { !WatchedVideoStore.isWatched($0.youtubeVideoId) }
+        pickerVideos = Array(unwatched.prefix(3))
+
+        if pickerVideos.isEmpty {
+            let name = currentChannel?.title ?? "this channel"
+            pickerTitle = "You've seen all of \(name)"
+        } else {
+            pickerTitle = "Up next"
+        }
+
+        pickerPresented = true
+    }
+
+    func dismissPicker() {
+        pickerPresented = false
+    }
+
+    func pickerSelect(_ video: LibraryVideo) {
+        guard let idx = channelVideos.firstIndex(where: { $0.youtubeVideoId == video.youtubeVideoId }) else {
+            return
+        }
+        pickerPresented = false
+        startChannel(at: idx)
+    }
+
+    // MARK: Playback engine (channel-scoped)
+
+    private func startChannel(at target: Int) {
         playTask?.cancel()
         playTask = Task { [weak self] in
-            await self?.play(at: target)
+            await self?.play(atChannelIndex: target)
         }
     }
 
-    private func play(at target: Int) async {
-        guard !playable.isEmpty else { mode = .empty; return }
-        guard target >= 0, target < playable.count else { mode = .empty; return }
-        index = target
+    private func play(atChannelIndex target: Int) async {
+        guard !channelVideos.isEmpty else { mode = .empty; return }
+        guard target >= 0, target < channelVideos.count else { mode = .empty; return }
+        channelIndex = target
 
-        let video = playable[target]
+        let video = channelVideos[target]
         isLoading = true
         defer { isLoading = false }
 
@@ -138,6 +225,7 @@ final class AppState {
             try await resolveAndStart(videoID: video.youtubeVideoId)
             consecutiveSkips = 0
             mode = .playing
+            flashStartChip()
             prefetchNext()
         } catch {
             if isDegraded {
@@ -151,11 +239,10 @@ final class AppState {
                 mode = .fallback
                 return
             }
-            await play(at: target + 1)
+            await play(atChannelIndex: target + 1)
         }
     }
 
-    /// Resolve once, then retry once, then start playback and wait for readiness.
     private func resolveAndStart(videoID: String) async throws {
         let url = try await resolveWithOneRetry(videoID: videoID)
         try await startPlayback(url: url)
@@ -220,9 +307,9 @@ final class AppState {
     }
 
     private func prefetchNext() {
-        let next = index + 1
-        guard next < playable.count else { return }
-        let id = playable[next].youtubeVideoId
+        let next = channelIndex + 1
+        guard next < channelVideos.count else { return }
+        let id = channelVideos[next].youtubeVideoId
         Task.detached { [api] in
             _ = try? await api.resolve(videoID: id)
         }

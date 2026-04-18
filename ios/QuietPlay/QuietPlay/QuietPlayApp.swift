@@ -17,23 +17,25 @@ struct QuietPlayApp: App {
 struct RootView: View {
     @Bindable var app: AppState
 
-    enum Route: Hashable { case library }
+    enum Route: Hashable { case stream }
 
     @State private var path: [Route] = []
 
     var body: some View {
         NavigationStack(path: $path) {
-            StreamView(app: app) {
-                app.player.pause()
-                path.append(.library)
+            LibraryView(app: app) { video, channel in
+                app.playInLibrary(video: video, channel: channel)
+                if path.isEmpty { path.append(.stream) }
             }
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .library:
-                    LibraryView(app: app) { video in
-                        app.seed(toVideoID: video.youtubeVideoId)
+                case .stream:
+                    StreamView(app: app) {
+                        app.player.pause()
                         path.removeAll()
                     }
+                    .navigationBarBackButtonHidden(true)
+                    .toolbar(.hidden, for: .navigationBar)
                 }
             }
         }
