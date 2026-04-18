@@ -26,6 +26,16 @@ struct StreamView: View {
                 .animation(.easeInOut(duration: 0.18), value: app.overlayVisible)
                 .animation(.easeInOut(duration: 0.18), value: app.pickerPresented)
 
+            // Big centered play icon while paused — clear visual cue the
+            // video is stopped. Fades with overlay transitions.
+            if app.isPaused && app.mode == .playing && !app.pickerPresented {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 90, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .shadow(color: .black.opacity(0.55), radius: 20, y: 6)
+                    .transition(.opacity)
+            }
+
             switch app.mode {
             case .empty:
                 MessageView(text: "Ask Dad to add a channel")
@@ -48,15 +58,22 @@ struct StreamView: View {
                 .transition(.opacity)
             }
 
-            RemoteInputView(
-                onSelect: { handleSelect() },
-                onLeft: { handleLeft() },
-                onRight: { handleRight() },
-                onPlayPause: { app.togglePlayPause() },
-                onExit: { handleExit() }
-            )
+            // When the picker is up, stop capturing raw presses via the
+            // UIKit responder — SwiftUI's focus engine needs control of
+            // the remote so the picker cards and Back button can be
+            // focused and selected.
+            if !app.pickerPresented {
+                RemoteInputView(
+                    onSelect: { handleSelect() },
+                    onLeft: { handleLeft() },
+                    onRight: { handleRight() },
+                    onPlayPause: { app.togglePlayPause() },
+                    onExit: { handleExit() }
+                )
+            }
         }
         .animation(.easeOut(duration: 0.2), value: app.pickerPresented)
+        .animation(.easeInOut(duration: 0.18), value: app.isPaused)
         .onChange(of: app.isLoading, initial: true) { _, loading in
             spinnerTask?.cancel()
             if loading {
@@ -117,15 +134,70 @@ struct StreamView: View {
 
                 Spacer()
 
-                Image(systemName: app.player.rate == 0 ? "pause.fill" : "play.fill")
-                    .font(.system(size: 34))
+                Image(systemName: app.isPaused ? "pause.fill" : "play.fill")
+                    .font(.system(size: 30))
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.6), radius: 10, x: 0, y: 2)
             }
             .padding(.horizontal, 56)
             .padding(.top, 44)
+
             Spacer()
+
+            ProgressStrip(
+                elapsed: app.elapsedSeconds,
+                duration: app.durationSeconds
+            )
+            .padding(.horizontal, 56)
+            .padding(.bottom, 40)
         }
+    }
+}
+
+private struct ProgressStrip: View {
+    let elapsed: Double
+    let duration: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.22))
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: max(0, min(geo.size.width, geo.size.width * fraction)))
+                }
+            }
+            .frame(height: 4)
+            .shadow(color: .black.opacity(0.55), radius: 8, y: 2)
+
+            HStack {
+                Text(Self.format(elapsed))
+                Spacer()
+                Text(Self.format(duration))
+            }
+            .font(.system(size: 14, weight: .medium, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.82))
+            .shadow(color: .black.opacity(0.55), radius: 8, y: 2)
+        }
+    }
+
+    private var fraction: Double {
+        guard duration > 0 else { return 0 }
+        return max(0, min(1, elapsed / duration))
+    }
+
+    private static func format(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
     }
 }
 
@@ -174,9 +246,11 @@ private struct PickerOverlay: View {
                         }
                     }
                     .padding(.horizontal, 48)
+                    .focusSection()
                 }
 
                 BackToLibraryButton(action: onBack)
+                    .focusSection()
 
                 Spacer(minLength: 0)
             }

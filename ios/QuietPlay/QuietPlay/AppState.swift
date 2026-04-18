@@ -38,6 +38,13 @@ final class AppState {
     var overlayVisible: Bool = false
     var isLoading: Bool = false
 
+    // Progress UI (updated by the periodic time observer; rendered in the
+    // playback overlay)
+    var elapsedSeconds: Double = 0
+    var durationSeconds: Double = 0
+    var playbackProgress: Double { durationSeconds > 0 ? elapsedSeconds / durationSeconds : 0 }
+    var isPaused: Bool = true
+
     // Picker state
     struct PickerCandidate: Identifiable, Hashable {
         var id: String { video.youtubeVideoId }
@@ -76,17 +83,25 @@ final class AppState {
             }
         }
 
-        // 80%-progress → mark watched
-        let interval = CMTime(seconds: 5, preferredTimescale: 600)
+        // Drives both the progress bar UI (every second) and the
+        // 80%-reached "mark watched" signal.
+        let interval = CMTime(seconds: 1, preferredTimescale: 600)
         self.timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.isPaused = self.player.rate == 0
                 guard let item = self.player.currentItem else { return }
                 let duration = item.duration.seconds
-                guard duration.isFinite, duration > 0 else { return }
                 let t = time.seconds
-                guard t.isFinite else { return }
-                if t / duration >= 0.8, let v = self.currentChannelVideo {
+                if duration.isFinite, duration > 0 {
+                    self.durationSeconds = duration
+                }
+                if t.isFinite {
+                    self.elapsedSeconds = t
+                }
+                if duration.isFinite, duration > 0, t.isFinite,
+                   t / duration >= 0.8,
+                   let v = self.currentChannelVideo {
                     WatchedVideoStore.markWatched(v.youtubeVideoId)
                 }
             }
@@ -356,6 +371,8 @@ final class AppState {
     }
 
     private func startPlayback(url: URL) async throws {
+        elapsedSeconds = 0
+        durationSeconds = 0
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
         player.play()
