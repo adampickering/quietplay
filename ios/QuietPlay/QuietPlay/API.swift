@@ -39,6 +39,11 @@ struct QuietPlayAPI {
         return QuietPlayAPI(baseURL: url)
     }
 
+    /// URL of the admin UI — used by the first-launch QR code.
+    var adminURL: URL {
+        baseURL.appendingPathComponent("admin")
+    }
+
     func profiles() async throws -> [Profile] {
         try await get("/profiles")
     }

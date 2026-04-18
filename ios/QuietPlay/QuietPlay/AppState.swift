@@ -13,10 +13,19 @@ final class AppState {
         case degraded
     }
 
+    enum BootstrapState: Equatable {
+        case loading
+        case needsSetup
+        case error(String)
+        case ready
+    }
+
     let api: QuietPlayAPI
     let player: AVPlayer
 
     var mode: Mode = .loading
+    var bootstrapState: BootstrapState = .loading
+    var profilePickerPresented: Bool = false
     var profiles: [Profile] = []
     var currentProfile: Profile?
 
@@ -89,17 +98,60 @@ final class AppState {
 
     // MARK: Bootstrap
 
+    @ObservationIgnored private var retryTask: Task<Void, Never>?
+
     func bootstrap() async {
+        retryTask?.cancel()
+        bootstrapState = .loading
         do {
             let list = try await api.profiles()
             profiles = list.sorted { $0.position < $1.position }
-            guard let first = profiles.first else {
-                mode = .empty
+
+            if profiles.isEmpty {
+                bootstrapState = .needsSetup
                 return
             }
-            await switchProfile(first)
+
+            if profiles.count == 1 {
+                await switchProfile(profiles[0])
+                profilePickerPresented = false
+                bootstrapState = .ready
+            } else {
+                // Multiple profiles — show picker before anything else.
+                profilePickerPresented = true
+                bootstrapState = .ready
+            }
         } catch {
-            mode = .degraded
+            let msg = (error as? APIError).map(describe) ?? error.localizedDescription
+            bootstrapState = .error(msg)
+            scheduleAutoRetry()
+        }
+    }
+
+    func retryBootstrap() {
+        retryTask?.cancel()
+        Task { await bootstrap() }
+    }
+
+    func pickProfile(_ profile: Profile) {
+        profilePickerPresented = false
+        Task { await switchProfile(profile) }
+    }
+
+    private func scheduleAutoRetry() {
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.bootstrap()
+        }
+    }
+
+    private func describe(_ err: APIError) -> String {
+        switch err {
+        case .badURL: return "Server address is invalid"
+        case .badStatus(let code): return "Server error (\(code))"
+        case .decoding: return "Couldn't read server response"
+        case .transport: return "Can't reach QuietPlay"
         }
     }
 
