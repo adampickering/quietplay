@@ -82,8 +82,11 @@ struct LibraryView: View {
                         markSeen(channel.id)
                         searchPresented = false
                         searchText = ""
-                        if let newest = channel.videos.first {
-                            onSelect(newest, channel, channels)
+                        let firstUnwatched = channel.videos.first(where: {
+                            !WatchedVideoStore.isWatched($0.youtubeVideoId)
+                        })
+                        if let video = firstUnwatched ?? channel.videos.first {
+                            onSelect(video, channel, channels)
                         }
                     },
                     onDismiss: {
@@ -566,8 +569,15 @@ private struct ChannelRowButton: View {
         .onTapGesture {
             focusedID = channel.id
             onSeen()
-            if let newest = channel.videos.first {
-                onPlay(newest)
+            // Play first unwatched video in the channel's display order
+            // (handles serial shows where the kid wants to continue from
+            // where they left off); fall back to position 0 if every
+            // video is already watched (rewatch).
+            let firstUnwatched = channel.videos.first(where: {
+                !WatchedVideoStore.isWatched($0.youtubeVideoId)
+            })
+            if let video = firstUnwatched ?? channel.videos.first {
+                onPlay(video)
             }
         }
         .onChange(of: focused) { _, newValue in
