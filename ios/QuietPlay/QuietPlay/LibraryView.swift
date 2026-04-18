@@ -16,6 +16,7 @@ struct LibraryView: View {
 
     @State private var channels: [LibraryChannel] = []
     @State private var focusedChannelID: UUID?
+    @State private var focusedVideoThumbnailURL: String?
     @State private var loadError: Bool = false
     @State private var seenAt: [String: Date] = ChannelSeenStore.load()
     @State private var watched: Set<String> = WatchedVideoStore.load()
@@ -61,10 +62,13 @@ struct LibraryView: View {
                                 GridHeader(channel: channel)
                             }
                             VideoGrid(
-                                videos: focusedChannel?.videos ?? []
-                            ) { video in
-                                if let ch = focusedChannel { onSelect(video, ch, channels) }
-                            }
+                                videos: focusedChannel?.videos ?? [],
+                                isWatched: { watched.contains($0.youtubeVideoId) },
+                                onFocusVideo: { focusedVideoThumbnailURL = $0.thumbnailUrl },
+                                onSelect: { video in
+                                    if let ch = focusedChannel { onSelect(video, ch, channels) }
+                                }
+                            )
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -97,10 +101,25 @@ struct LibraryView: View {
                 .transition(.opacity)
             }
         }
-        .background(backgroundGradient)
+        .background {
+            ZStack {
+                backgroundGradient
+                if let urlStr = focusedVideoThumbnailURL, !urlStr.isEmpty {
+                    BlurredBackdrop(urlString: urlStr)
+                        .id(urlStr)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.35), value: focusedVideoThumbnailURL)
+        }
         .ignoresSafeArea()
         .animation(.easeOut(duration: 0.2), value: searchPresented)
         .animation(.easeInOut(duration: 0.45), value: focusedChannelID)
+        .onChange(of: focusedChannelID) { _, _ in
+            // New channel = unset the blurred-video backdrop; a VideoCard
+            // in the new channel will reset it if/when kid arrows right.
+            focusedVideoThumbnailURL = nil
+        }
         .task(id: app.currentProfile?.id) {
             await load()
         }
@@ -617,6 +636,8 @@ private struct ChannelRowButton: View {
 
 private struct VideoGrid: View {
     let videos: [LibraryVideo]
+    let isWatched: (LibraryVideo) -> Bool
+    let onFocusVideo: (LibraryVideo) -> Void
     let onSelect: (LibraryVideo) -> Void
 
     private let columns = [
@@ -642,7 +663,12 @@ private struct VideoGrid: View {
             } else {
                 LazyVGrid(columns: columns, spacing: 40) {
                     ForEach(videos) { video in
-                        VideoCardButton(video: video, onSelect: onSelect)
+                        VideoCardButton(
+                            video: video,
+                            watched: isWatched(video),
+                            onFocus: { onFocusVideo(video) },
+                            onSelect: onSelect
+                        )
                     }
                 }
                 .padding(.horizontal, 48)
@@ -655,6 +681,8 @@ private struct VideoGrid: View {
 
 private struct VideoCardButton: View {
     let video: LibraryVideo
+    let watched: Bool
+    let onFocus: () -> Void
     let onSelect: (LibraryVideo) -> Void
     @FocusState private var focused: Bool
 
@@ -676,6 +704,9 @@ private struct VideoCardButton: View {
         .onTapGesture {
             onSelect(video)
         }
+        .onChange(of: focused) { _, newValue in
+            if newValue { onFocus() }
+        }
         .scaleEffect(focused ? 1.035 : 1.0)
         .animation(Motion.focusSpring, value: focused)
     }
@@ -684,6 +715,19 @@ private struct VideoCardButton: View {
         Color.white.opacity(0.05)
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .overlay(ThumbnailImage(url: video.thumbnailUrl))
+            .overlay(alignment: .topTrailing) {
+                if watched {
+                    ZStack {
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 28, height: 28)
+                    .padding(8)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -696,16 +740,26 @@ private struct VideoCardButton: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(video.title)
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white.opacity(focused ? 1.0 : 0.88))
+                .foregroundStyle(.white.opacity(titleOpacity))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .kerning(-0.1)
             Text(Self.relative.localizedString(for: video.publishedAt, relativeTo: Date()))
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.white.opacity(focused ? 0.6 : 0.4))
+                .foregroundStyle(.white.opacity(dateOpacity))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 2)
+    }
+
+    private var titleOpacity: Double {
+        if watched { return focused ? 0.7 : 0.55 }
+        return focused ? 1.0 : 0.88
+    }
+
+    private var dateOpacity: Double {
+        if watched { return focused ? 0.45 : 0.3 }
+        return focused ? 0.6 : 0.4
     }
 }
 
@@ -743,6 +797,41 @@ private struct ChannelAvatar: View {
                     .rotationEffect(.degrees(-90))
                     .frame(width: size + 4, height: size + 4)
                     .animation(Motion.focusSpring, value: progress)
+            }
+        }
+    }
+}
+
+/// Full-bleed, heavily blurred backdrop of a video thumbnail. Fades in over
+/// the library's ambient channel tint whenever a video card gains focus —
+/// the whole library dresses itself around whatever the kid is looking at.
+private struct BlurredBackdrop: View {
+    let urlString: String
+
+    var body: some View {
+        GeometryReader { geo in
+            if let u = URL(string: urlString) {
+                AsyncImage(url: u) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
+                            .blur(radius: 80, opaque: true)
+                            .overlay(
+                                LinearGradient(
+                                    colors: [.black.opacity(0.45), .black.opacity(0.7)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    default:
+                        Color.clear
+                    }
+                }
+            } else {
+                Color.clear
             }
         }
     }
