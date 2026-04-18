@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 /**
- * Generate QuietPlay brand assets (App Icon + Top Shelf images) via the
- * Gemini 2.5 Flash Image model, resize them to the exact tvOS-required
- * pixel dimensions, and drop them into the Xcode asset catalog.
+ * Generate QuietPlay brand assets (App Icon + Top Shelf images), resize
+ * them to the exact tvOS-required pixel dimensions, and drop them into
+ * the Xcode asset catalog.
  *
+ *   # Use a local source image (highest quality path)
+ *   node scripts/generate-assets.mjs --source path/to/logo.png
+ *
+ *   # Or generate fresh via Gemini 2.5 Flash Image
  *   GEMINI_API_KEY=... node scripts/generate-assets.mjs
  *
  * Optional flags:
- *   --dry-run           don't hit Gemini, just re-run Contents.json rewrites
+ *   --dry-run           don't hit Gemini / source, write flat-navy placeholders
  *   --only <key>        generate only the named asset (home|store|shelf|wide)
+ *   --source <path>     resize a local image into every asset slot
  */
 
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
@@ -151,13 +156,13 @@ async function renderContentsJson(assetDir, filename) {
   return isImageSet;
 }
 
-async function generateAsset(key, spec, { dryRun }) {
+async function generateAsset(key, spec, { dryRun, sourcePath }) {
   const [w, h] = spec.aspect;
   console.log(`\n▶ ${spec.label} — target ${w}×${h}`);
 
   let buffer;
   if (dryRun) {
-    // In dry-run mode just write a flat color fallback so Xcode builds.
+    // Flat color fallback so Xcode still builds.
     buffer = await sharp({
       create: {
         width: w,
@@ -169,6 +174,13 @@ async function generateAsset(key, spec, { dryRun }) {
       .png()
       .toBuffer();
     console.log('  dry-run: wrote flat navy placeholder');
+  } else if (sourcePath) {
+    const raw = await readFile(sourcePath);
+    buffer = await sharp(raw)
+      .resize(w, h, { fit: 'cover', position: 'attention' })
+      .png()
+      .toBuffer();
+    console.log(`  resized from ${sourcePath}`);
   } else {
     console.log('  requesting from Gemini…');
     const raw = await callGemini(spec.prompt);
@@ -194,10 +206,12 @@ async function main() {
   const dryRun = argv.includes('--dry-run');
   const onlyIdx = argv.indexOf('--only');
   const only = onlyIdx >= 0 ? argv[onlyIdx + 1] : null;
+  const sourceIdx = argv.indexOf('--source');
+  const sourcePath = sourceIdx >= 0 ? argv[sourceIdx + 1] : null;
 
-  if (!API_KEY && !dryRun) {
+  if (!sourcePath && !API_KEY && !dryRun) {
     console.error(
-      'GEMINI_API_KEY is not set. Export it (see https://aistudio.google.com/app/apikey) or pass --dry-run.',
+      'No --source file provided and GEMINI_API_KEY is not set. Pass --source <image-path>, export GEMINI_API_KEY, or use --dry-run.',
     );
     process.exit(1);
   }
@@ -209,7 +223,7 @@ async function main() {
       console.error(`Unknown asset key: ${key}`);
       process.exit(1);
     }
-    await generateAsset(key, spec, { dryRun });
+    await generateAsset(key, spec, { dryRun, sourcePath });
   }
 
   console.log('\n✓ done');
