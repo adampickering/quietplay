@@ -605,13 +605,26 @@ private struct VideoGrid: View {
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 40) {
-                ForEach(videos) { video in
-                    VideoCardButton(video: video, onSelect: onSelect)
+            if videos.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "film")
+                        .font(.system(size: 40, weight: .light))
+                        .foregroundStyle(.white.opacity(0.3))
+                    Text("No videos yet")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.white.opacity(0.5))
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 80)
+            } else {
+                LazyVGrid(columns: columns, spacing: 40) {
+                    ForEach(videos) { video in
+                        VideoCardButton(video: video, onSelect: onSelect)
+                    }
+                }
+                .padding(.horizontal, 48)
+                .padding(.vertical, 24)
             }
-            .padding(.horizontal, 48)
-            .padding(.vertical, 24)
         }
         .scrollClipDisabled()
     }
