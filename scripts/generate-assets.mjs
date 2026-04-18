@@ -59,8 +59,6 @@ play triangle, soft-edged, a faint glow behind it. Edge-to-edge
 composition with small visual breathing room. No text. No logo
 wordmark. No shadows. No extra elements.`,
     aspect: [400, 240],
-    fit: 'contain',
-    background: { r: 26, g: 22, b: 18, alpha: 1 },
     path: join(
       brandDir,
       'App Icon.imagestack/Back.imagestacklayer/Content.imageset',
@@ -77,8 +75,6 @@ larger canvas. Same deep warm navy gradient background, a single
 white play triangle centered, soft-edged, faint glow. Edge-to-edge,
 no text, no wordmark, no shadow.`,
     aspect: [1280, 768],
-    fit: 'contain',
-    background: { r: 26, g: 22, b: 18, alpha: 1 },
     path: join(
       brandDir,
       'App Icon - App Store.imagestack/Back.imagestacklayer/Content.imageset',
