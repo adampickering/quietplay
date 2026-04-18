@@ -713,13 +713,14 @@ private struct VideoCardButton: View {
                 if watched {
                     ZStack {
                         Circle()
-                            .fill(.ultraThinMaterial)
+                            .fill(Color(red: 0.20, green: 0.78, blue: 0.35))
                         Image(systemName: "checkmark")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(.white)
                     }
-                    .frame(width: 28, height: 28)
-                    .padding(8)
+                    .frame(width: 32, height: 32)
+                    .shadow(color: .black.opacity(0.4), radius: 5, x: 0, y: 2)
+                    .padding(10)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
