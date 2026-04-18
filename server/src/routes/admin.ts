@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { request } from 'undici';
 import { pool } from '../db.js';
+import { ingestChannel } from '../ingest-lib.js';
+import { logger } from '../logger.js';
 
 const LOOKUP_TIMEOUT_MS = 5000;
 const UC_ID = /UC[A-Za-z0-9_\-]{22}/;
@@ -190,7 +192,18 @@ export async function adminRoutes(app: FastifyInstance) {
           default_video_sort ?? null,
         ],
       );
-      return rows[0];
+      const created = rows[0];
+      // Fire-and-forget ingest for the newly-added channel so the first
+      // 15 videos land in the library without waiting for the hourly
+      // cron. Doesn't block the HTTP response.
+      ingestChannel({ id: created.id, youtube_channel_id: created.youtube_channel_id })
+        .then((r) => {
+          logger.info({ channel: created.youtube_channel_id, ...r }, 'post-create ingest');
+        })
+        .catch((err) => {
+          logger.warn({ err, channel: created.youtube_channel_id }, 'post-create ingest failed');
+        });
+      return created;
     } catch (err: any) {
       if (err?.code === '23505') {
         return reply.code(409).send({ error: 'channel already exists' });
