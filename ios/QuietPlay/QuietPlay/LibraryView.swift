@@ -16,7 +16,6 @@ struct LibraryView: View {
 
     @State private var channels: [LibraryChannel] = []
     @State private var focusedChannelID: UUID?
-    @State private var focusedVideoThumbnailURL: String?
     @State private var loadError: Bool = false
     @State private var seenAt: [String: Date] = ChannelSeenStore.load()
     @State private var watched: Set<String> = WatchedVideoStore.load()
@@ -64,7 +63,6 @@ struct LibraryView: View {
                             VideoGrid(
                                 videos: focusedChannel?.videos ?? [],
                                 isWatched: { watched.contains($0.youtubeVideoId) },
-                                onFocusVideo: { focusedVideoThumbnailURL = $0.thumbnailUrl },
                                 onSelect: { video in
                                     if let ch = focusedChannel { onSelect(video, ch, channels) }
                                 }
@@ -104,22 +102,17 @@ struct LibraryView: View {
         .background {
             ZStack {
                 backgroundGradient
-                if let urlStr = focusedVideoThumbnailURL, !urlStr.isEmpty {
+                if let urlStr = channelBackdropURL, !urlStr.isEmpty {
                     BlurredBackdrop(urlString: urlStr)
                         .id(urlStr)
                         .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.35), value: focusedVideoThumbnailURL)
+            .animation(.easeInOut(duration: 0.45), value: channelBackdropURL)
         }
         .ignoresSafeArea()
         .animation(.easeOut(duration: 0.2), value: searchPresented)
         .animation(.easeInOut(duration: 0.45), value: focusedChannelID)
-        .onChange(of: focusedChannelID) { _, _ in
-            // New channel = unset the blurred-video backdrop; a VideoCard
-            // in the new channel will reset it if/when kid arrows right.
-            focusedVideoThumbnailURL = nil
-        }
         .task(id: app.currentProfile?.id) {
             await load()
         }
@@ -128,6 +121,13 @@ struct LibraryView: View {
             // away in Stream mode so the avatar progress rings are fresh.
             watched = WatchedVideoStore.load()
         }
+    }
+
+    /// Stable per-channel backdrop source: the latest video's thumbnail.
+    /// Using one image per channel (instead of per-focused-video) keeps the
+    /// background calm while the kid arrows through the grid.
+    private var channelBackdropURL: String? {
+        focusedChannel?.videos.first?.thumbnailUrl
     }
 
     private var backgroundGradient: LinearGradient {
@@ -637,7 +637,6 @@ private struct ChannelRowButton: View {
 private struct VideoGrid: View {
     let videos: [LibraryVideo]
     let isWatched: (LibraryVideo) -> Bool
-    let onFocusVideo: (LibraryVideo) -> Void
     let onSelect: (LibraryVideo) -> Void
 
     private let columns = [
@@ -666,7 +665,6 @@ private struct VideoGrid: View {
                         VideoCardButton(
                             video: video,
                             watched: isWatched(video),
-                            onFocus: { onFocusVideo(video) },
                             onSelect: onSelect
                         )
                     }
@@ -682,7 +680,6 @@ private struct VideoGrid: View {
 private struct VideoCardButton: View {
     let video: LibraryVideo
     let watched: Bool
-    let onFocus: () -> Void
     let onSelect: (LibraryVideo) -> Void
     @FocusState private var focused: Bool
 
@@ -703,9 +700,6 @@ private struct VideoCardButton: View {
         .focused($focused)
         .onTapGesture {
             onSelect(video)
-        }
-        .onChange(of: focused) { _, newValue in
-            if newValue { onFocus() }
         }
         .scaleEffect(focused ? 1.035 : 1.0)
         .animation(Motion.focusSpring, value: focused)
