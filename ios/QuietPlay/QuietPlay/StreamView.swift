@@ -344,7 +344,7 @@ private struct PickerCard: View {
         VStack(alignment: .leading, spacing: 12) {
             Color.white.opacity(0.05)
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .overlay(Thumb(url: candidate.video.thumbnailUrl))
+                .overlay(ThumbnailImage(url: candidate.video.thumbnailUrl))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -412,25 +412,3 @@ private struct BackToLibraryButton: View {
     }
 }
 
-private struct Thumb: View {
-    let url: String?
-    var body: some View {
-        GeometryReader { geo in
-            if let urlStr = url, let u = URL(string: urlStr) {
-                AsyncImage(url: u) { phase in
-                    switch phase {
-                    case .success(let img):
-                        img.resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
-                    default:
-                        Color.clear
-                    }
-                }
-            } else {
-                Color.clear
-            }
-        }
-    }
-}

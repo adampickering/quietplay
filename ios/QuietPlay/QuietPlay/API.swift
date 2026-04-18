@@ -48,10 +48,6 @@ struct QuietPlayAPI {
         try await get("/profiles")
     }
 
-    func playable(profileID: UUID) async throws -> [PlayableVideo] {
-        try await get("/playable?profile=\(profileID.uuidString.lowercased())")
-    }
-
     func library(profileID: UUID) async throws -> [LibraryChannel] {
         try await get("/library?profile=\(profileID.uuidString.lowercased())")
     }

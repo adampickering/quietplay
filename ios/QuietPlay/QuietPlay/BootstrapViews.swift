@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 private let bgGradient = LinearGradient(
-    colors: [Color(red: 0.045, green: 0.045, blue: 0.05), .black],
+    colors: [Theme.Palette.baseTop, Theme.Palette.base],
     startPoint: .top,
     endPoint: .bottom
 )

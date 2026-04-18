@@ -10,6 +10,10 @@ struct ProfileSwitcher: View {
             Menu {
                 ForEach(app.profiles) { profile in
                     Button(profile.name) {
+                        // AppState.switchProfile only resets state and
+                        // updates currentProfile — LibraryView reacts
+                        // via its .task(id: currentProfile?.id) modifier
+                        // and fetches /library for the new profile.
                         Task { await app.switchProfile(profile) }
                     }
                 }

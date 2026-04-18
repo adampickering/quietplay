@@ -3,38 +3,32 @@ import UIKit
 
 /// Shared motion system. Centralizing these makes the whole app feel
 /// cohesive and lets us honor the system's Reduce Motion preference from
-/// a single place.
+/// a single place: every `.animation(Motion.focusSpring, value: …)` call
+/// site degrades gracefully to a flat fade when the accessibility flag
+/// is on — no per-view @Environment boilerplate.
 enum Motion {
-    /// The primary focus/press spring used for card lifts, button presses,
-    /// and subtle hover feedback. Apple-ish: quick response, low bounce.
-    static let focusSpring: Animation = .spring(response: 0.38, dampingFraction: 0.72)
-
-    /// Shorter fade used for overlays and ambient transitions that should
-    /// feel calm rather than springy.
+    /// Flat fade used when Reduce Motion is enabled, and for overlays
+    /// that should feel calm regardless.
     static let calmFade: Animation = .easeInOut(duration: 0.18)
 
-    /// Respects the system's Reduce Motion setting: drops the spring's
-    /// bounce when the user prefers it.
+    /// Apple-ish spring for card focus / press lifts. Honors Reduce
+    /// Motion automatically.
     @MainActor
-    static var focusPreferred: Animation {
-        UIAccessibility.isReduceMotionEnabled ? calmFade : focusSpring
+    static var focusSpring: Animation {
+        UIAccessibility.isReduceMotionEnabled
+            ? calmFade
+            : .spring(response: 0.38, dampingFraction: 0.72)
     }
 }
 
-extension View {
-    /// Apply the focus spring, falling back to a flat fade when the user
-    /// has Reduce Motion enabled.
-    func focusSpringAnimation<V: Equatable>(_ value: V, reduceMotion: Bool) -> some View {
-        animation(reduceMotion ? .easeInOut(duration: 0.1) : Motion.focusSpring, value: value)
+extension Color {
+    /// Deterministic, quiet ambient tint for a channel. Picks a stable
+    /// hue from the UUID; very low saturation/brightness so the
+    /// background stays dark and never fights the thumbnails.
+    static func ambientTint(for channelID: UUID) -> Color {
+        var hasher = Hasher()
+        hasher.combine(channelID)
+        let h = Double(UInt(truncatingIfNeeded: hasher.finalize()) % 360) / 360.0
+        return Color(hue: h, saturation: 0.28, brightness: 0.14)
     }
-}
-
-/// Deterministic, quiet ambient tint for a channel. Picks a stable hue
-/// from the UUID, with very low saturation and brightness so the
-/// background stays dark and never fights the thumbnails.
-func ambientTint(for channelID: UUID) -> Color {
-    var hasher = Hasher()
-    hasher.combine(channelID)
-    let h = Double(UInt(truncatingIfNeeded: hasher.finalize()) % 360) / 360.0
-    return Color(hue: h, saturation: 0.28, brightness: 0.14)
 }

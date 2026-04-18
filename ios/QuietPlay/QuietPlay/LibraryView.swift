@@ -91,6 +91,14 @@ struct LibraryView: View {
                 }
             }
 
+            if loadError {
+                LibraryErrorOverlay(onRetry: {
+                    loadError = false
+                    Task { await load() }
+                })
+                .transition(.opacity)
+            }
+
             if searchPresented {
                 SearchOverlay(
                     channels: channels,
@@ -149,7 +157,7 @@ struct LibraryView: View {
     }
 
     private var backgroundGradient: LinearGradient {
-        let tint = focusedChannel.map { ambientTint(for: $0.id) } ?? baseTop
+        let tint = focusedChannel.map { Color.ambientTint(for: $0.id) } ?? baseTop
         // Mix the channel tint into the top half; bottom fades to pure
         // black. Very low-saturation so the wash is felt, not seen.
         return LinearGradient(
@@ -834,6 +842,57 @@ private struct VideoCardButton: View {
 
 // MARK: - Helpers
 
+/// Error overlay shown when the /library fetch fails. Sits above the
+/// empty library so the user has a clear "couldn't load" signal and an
+/// explicit retry button instead of staring at blankness.
+private struct LibraryErrorOverlay: View {
+    let onRetry: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.85).ignoresSafeArea()
+            VStack(spacing: 18) {
+                Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.white.opacity(0.55))
+                Text("Couldn't load your library")
+                    .font(.system(size: Theme.FontSize.xxxl, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Check that QuietPlay is running, then try again.")
+                    .font(.system(size: Theme.FontSize.md))
+                    .foregroundStyle(Theme.Palette.dimWhite55)
+
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 15, weight: .medium))
+                    Text("Try again")
+                        .font(.system(size: Theme.FontSize.md, weight: .medium))
+                }
+                .foregroundStyle(.white.opacity(focused ? 1.0 : 0.85))
+                .padding(.horizontal, 26)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.xxl, style: .continuous)
+                        .fill(.white.opacity(focused ? 0.16 : 0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.xxl, style: .continuous)
+                        .strokeBorder(.white.opacity(focused ? 0.32 : 0.12), lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+                .focusable()
+                .focusEffectDisabled()
+                .focused($focused)
+                .onTapGesture(perform: onRetry)
+                .accessibilityAddTraits(.isButton)
+                .animation(Motion.focusSpring, value: focused)
+                .padding(.top, 8)
+            }
+        }
+    }
+}
+
 /// Stylized icon for the "Recently Added" virtual channel: soft amber
 /// gradient circle with a sparkles glyph, distinct from real channel
 /// avatars so kids recognize it as the cross-library freshness shortcut.
@@ -930,7 +989,7 @@ private struct BlurredBackdrop: View {
     }
 }
 
-private struct ThumbnailImage: View {
+struct ThumbnailImage: View {
     let url: String?
     var body: some View {
         GeometryReader { geo in

@@ -296,6 +296,11 @@ final class AppState {
     }
 
     private func play(atChannelIndex target: Int) async {
+        // Honor cancellation from the enclosing playTask, otherwise the
+        // skip-recursion chain can keep running after the user has
+        // already picked a different video or bailed to the library.
+        if Task.isCancelled { return }
+
         guard !channelVideos.isEmpty else { mode = .empty; return }
         guard target >= 0, target < channelVideos.count else { mode = .empty; return }
         channelIndex = target
@@ -306,11 +311,13 @@ final class AppState {
 
         do {
             try await resolveAndStart(videoID: video.youtubeVideoId)
+            if Task.isCancelled { return }
             consecutiveSkips = 0
             mode = .playing
             flashStartChip()
             prefetchNext()
         } catch {
+            if Task.isCancelled { return }
             if isDegraded {
                 player.pause()
                 mode = .degraded
@@ -363,7 +370,10 @@ final class AppState {
     }
 
     private func waitForReady(item: AVPlayerItem) async throws {
-        final class Holder { var obs: NSKeyValueObservation?; var finished = false }
+        final class Holder: @unchecked Sendable {
+            var obs: NSKeyValueObservation?
+            var finished = false
+        }
         let holder = Holder()
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             holder.obs = item.observe(\.status, options: [.initial, .new]) { item, _ in
