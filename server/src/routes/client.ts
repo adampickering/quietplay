@@ -83,7 +83,9 @@ export async function clientRoutes(app: FastifyInstance) {
                 row_number() over (partition by v.channel_id order by v.published_at desc) as rn
          from videos v
          join channels c on v.channel_id = c.id
-         where v.channel_id = any($1::uuid[]) and c.is_active = true
+         where v.channel_id = any($1::uuid[])
+           and c.is_active = true
+           and v.is_short = false
        ) ranked
        where rn <= 20
        order by channel_id, published_at desc`,

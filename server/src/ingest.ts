@@ -6,7 +6,9 @@ import { logger } from './logger.js';
 
 const MAX_ENTRIES = 15;
 const CONCURRENCY = 4;
+const SHORTS_CHECK_CONCURRENCY = 8;
 const FEED_TIMEOUT_MS = 10_000;
+const SHORTS_CHECK_TIMEOUT_MS = 4_000;
 
 interface Channel {
   id: string;
@@ -20,6 +22,31 @@ interface FeedEntry {
   published_at: string;
 }
 
+interface EnrichedEntry extends FeedEntry {
+  is_short: boolean;
+}
+
+/**
+ * Detect whether a video is a YouTube Short by requesting the canonical
+ * /shorts/<id> URL. YouTube serves a 200 Shorts page for Shorts, and a 303
+ * redirect to /watch?v=<id> for regular videos. On any error/unexpected
+ * status we fall back to false so we never hide a regular video.
+ */
+async function isShort(videoID: string): Promise<boolean> {
+  try {
+    const res = await request(`https://www.youtube.com/shorts/${videoID}`, {
+      headersTimeout: SHORTS_CHECK_TIMEOUT_MS,
+      bodyTimeout: SHORTS_CHECK_TIMEOUT_MS,
+      maxRedirections: 0,
+      headers: { 'user-agent': 'Mozilla/5.0 QuietPlayBot' },
+    });
+    await res.body.dump();
+    return res.statusCode === 200;
+  } catch {
+    return false;
+  }
+}
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -27,7 +54,11 @@ const parser = new XMLParser({
 
 async function fetchFeed(youtubeChannelId: string): Promise<FeedEntry[]> {
   const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${youtubeChannelId}`;
-  const res = await request(url, { headersTimeout: FEED_TIMEOUT_MS, bodyTimeout: FEED_TIMEOUT_MS });
+  const res = await request(url, {
+    headersTimeout: FEED_TIMEOUT_MS,
+    bodyTimeout: FEED_TIMEOUT_MS,
+    headers: { 'user-agent': 'Mozilla/5.0 QuietPlayBot' },
+  });
   if (res.statusCode !== 200) {
     throw new Error(`feed ${youtubeChannelId} status ${res.statusCode}`);
   }
@@ -44,31 +75,38 @@ async function fetchFeed(youtubeChannelId: string): Promise<FeedEntry[]> {
   }));
 }
 
-async function upsertVideos(channelId: string, entries: FeedEntry[]): Promise<number> {
-  if (entries.length === 0) return 0;
+async function upsertVideos(channelId: string, entries: EnrichedEntry[]): Promise<{ added: number; shorts: number }> {
+  if (entries.length === 0) return { added: 0, shorts: 0 };
   const values: unknown[] = [];
   const tuples: string[] = [];
   entries.forEach((e, i) => {
-    const base = i * 5;
-    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
-    values.push(channelId, e.youtube_video_id, e.title, e.thumbnail_url, e.published_at);
+    const base = i * 6;
+    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`);
+    values.push(channelId, e.youtube_video_id, e.title, e.thumbnail_url, e.published_at, e.is_short);
   });
+  // ON CONFLICT also updates is_short so existing rows get backfilled once
+  // the ingest has run with Shorts detection enabled.
   const sql = `
-    insert into videos (channel_id, youtube_video_id, title, thumbnail_url, published_at)
+    insert into videos (channel_id, youtube_video_id, title, thumbnail_url, published_at, is_short)
     values ${tuples.join(', ')}
-    on conflict (youtube_video_id) do nothing
+    on conflict (youtube_video_id) do update set is_short = excluded.is_short
   `;
   const result = await pool.query(sql, values);
-  return result.rowCount ?? 0;
+  const shorts = entries.filter((e) => e.is_short).length;
+  return { added: result.rowCount ?? 0, shorts };
 }
 
-async function processChannel(channel: Channel): Promise<{ added: number; error?: string }> {
+async function processChannel(channel: Channel): Promise<{ added: number; shorts: number; error?: string }> {
   try {
     const entries = await fetchFeed(channel.youtube_channel_id);
-    const added = await upsertVideos(channel.id, entries);
-    return { added };
+    const enriched = await runPool(entries, SHORTS_CHECK_CONCURRENCY, async (e) => ({
+      ...e,
+      is_short: await isShort(e.youtube_video_id),
+    }));
+    const { added, shorts } = await upsertVideos(channel.id, enriched);
+    return { added, shorts };
   } catch (err) {
-    return { added: 0, error: err instanceof Error ? err.message : String(err) };
+    return { added: 0, shorts: 0, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -95,6 +133,7 @@ async function main() {
   const results = await runPool(channels, CONCURRENCY, processChannel);
 
   const videos_added = results.reduce((sum, r) => sum + r.added, 0);
+  const shorts_flagged = results.reduce((sum, r) => sum + r.shorts, 0);
   const errors = results
     .map((r, i) => (r.error ? { channel: channels[i].youtube_channel_id, error: r.error } : null))
     .filter((x): x is { channel: string; error: string } => x !== null);
@@ -102,6 +141,7 @@ async function main() {
   logger.info({
     channels_processed: channels.length,
     videos_added,
+    shorts_flagged,
     duration_ms: Date.now() - start,
     errors,
   });
