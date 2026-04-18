@@ -48,11 +48,21 @@ struct StreamView: View {
 
             switch app.mode {
             case .empty:
-                MessageView(text: "Ask Dad to add a channel")
+                MessageView(text: "Ask Dad to add a channel", onExit: onExitToLibrary)
             case .fallback:
-                MessageView(text: "Nothing to play right now")
+                MessageView(
+                    text: "Nothing to play right now",
+                    actionTitle: "Try again",
+                    action: { app.retryCurrentVideo() },
+                    onExit: onExitToLibrary
+                )
             case .degraded:
-                MessageView(text: "Can't reach QuietPlay right now")
+                MessageView(
+                    text: "Can't reach QuietPlay right now",
+                    actionTitle: "Try again",
+                    action: { app.retryCurrentVideo() },
+                    onExit: onExitToLibrary
+                )
             case .loading, .playing:
                 EmptyView()
             }
@@ -68,11 +78,12 @@ struct StreamView: View {
                 .transition(.opacity)
             }
 
-            // When the picker is up, stop capturing raw presses via the
-            // UIKit responder — SwiftUI's focus engine needs control of
-            // the remote so the picker cards and Back button can be
-            // focused and selected.
-            if !app.pickerPresented {
+            // When the picker or a MessageView (fallback/degraded/empty)
+            // is up, stop capturing raw presses via the UIKit responder —
+            // SwiftUI's focus engine needs control of the remote so the
+            // picker cards, retry pill, or Back button can be focused and
+            // selected.
+            if !app.pickerPresented && app.mode == .playing {
                 RemoteInputView(
                     onSelect: { handleSelect() },
                     onLeft: { handleLeft() },
@@ -154,12 +165,15 @@ struct StreamView: View {
 
             Spacer()
 
-            ProgressStrip(
-                elapsed: app.elapsedSeconds,
-                duration: app.durationSeconds
-            )
-            .padding(.horizontal, 56)
-            .padding(.bottom, 40)
+            if app.durationSeconds > 0 {
+                ProgressStrip(
+                    elapsed: app.elapsedSeconds,
+                    duration: app.durationSeconds
+                )
+                .padding(.horizontal, 56)
+                .padding(.bottom, 40)
+                .transition(.opacity)
+            }
         }
     }
 }
@@ -213,13 +227,58 @@ private struct ProgressStrip: View {
 
 private struct MessageView: View {
     let text: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+    let onExit: () -> Void
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            Text(text)
-                .font(.system(size: 32, weight: .regular))
-                .foregroundStyle(.white.opacity(0.85))
+            VStack(spacing: 22) {
+                Text(text)
+                    .font(.system(size: 30, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
+
+                if let title = actionTitle, let action = action {
+                    RetryPill(title: title, action: action)
+                }
+            }
+            .padding(40)
         }
+        .onExitCommand(perform: onExit)
+    }
+}
+
+private struct RetryPill: View {
+    let title: String
+    let action: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 15, weight: .medium))
+            Text(title)
+                .font(.system(size: 17, weight: .medium))
+        }
+        .foregroundStyle(.white.opacity(focused ? 1.0 : 0.8))
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.white.opacity(focused ? 0.16 : 0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(focused ? 0.32 : 0.1), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        .onTapGesture(perform: action)
+        .animation(Motion.focusSpring, value: focused)
     }
 }
 

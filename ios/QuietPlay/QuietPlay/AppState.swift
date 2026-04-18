@@ -221,6 +221,14 @@ final class AppState {
         if player.rate == 0 { player.play() } else { player.pause() }
     }
 
+    /// Retry the current channel video after a .fallback or .degraded error.
+    /// Clears failure accounting and re-enters the playback pipeline.
+    func retryCurrentVideo() {
+        consecutiveSkips = 0
+        failureTimestamps.removeAll()
+        startChannel(at: channelIndex)
+    }
+
     func toggleOverlay() {
         overlayVisible.toggle()
         if overlayVisible {

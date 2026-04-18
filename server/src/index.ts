@@ -3,11 +3,13 @@ import Fastify from 'fastify';
 import { resolverRoutes } from './routes/resolver.js';
 import { clientRoutes } from './routes/client.js';
 import { adminRoutes } from './routes/admin.js';
+import { healthRoutes } from './routes/health.js';
 import { logger } from './logger.js';
 
 async function main() {
   const app = Fastify({ loggerInstance: logger });
 
+  await app.register(healthRoutes);
   await app.register(resolverRoutes());
   await app.register(clientRoutes);
   await app.register(adminRoutes, { prefix: '/admin' });
