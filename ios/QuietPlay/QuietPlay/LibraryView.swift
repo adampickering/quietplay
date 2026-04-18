@@ -5,6 +5,12 @@ private let baseTop = Theme.Palette.baseTop
 private let baseBottom = Theme.Palette.base
 private let dividerColor = Theme.Palette.divider
 
+/// Sentinel UUID for the "Recently Added" virtual channel. Pinned to the
+/// top of the channel list when there's at least one unwatched video
+/// anywhere in the library.
+private let recentlyAddedID = UUID(uuidString: "00000000-0000-0000-0000-0000000000EE")!
+private let recentlyAddedTitle = "Recently Added"
+
 enum SortMode: String {
     case newest
     case alphabetical
@@ -48,7 +54,15 @@ struct LibraryView: View {
                             hasNew: hasNew,
                             progress: progress,
                             markSeen: markSeen,
-                            onPlay: { video, channel in onSelect(video, channel, channels) }
+                            onPlay: { video, channel in
+                                // If the row was Recently Added, resolve
+                                // the video's real channel so playback
+                                // context is correct.
+                                let actual = (channel.id == recentlyAddedID)
+                                    ? (realChannel(for: video) ?? channel)
+                                    : channel
+                                onSelect(video, actual, channels)
+                            }
                         )
                         .frame(width: geo.size.width * paneSplit)
 
@@ -64,7 +78,11 @@ struct LibraryView: View {
                                 videos: focusedChannel?.videos ?? [],
                                 isWatched: { watched.contains($0.youtubeVideoId) },
                                 onSelect: { video in
-                                    if let ch = focusedChannel { onSelect(video, ch, channels) }
+                                    guard let ch = focusedChannel else { return }
+                                    let actual = (ch.id == recentlyAddedID)
+                                        ? (realChannel(for: video) ?? ch)
+                                        : ch
+                                    onSelect(video, actual, channels)
                                 }
                             )
                         }
@@ -142,9 +160,10 @@ struct LibraryView: View {
     }
 
     private var visibleChannels: [LibraryChannel] {
+        var list: [LibraryChannel]
         switch sort {
         case .newest:
-            return channels.sorted { a, b in
+            list = channels.sorted { a, b in
                 let ad = a.videos.first?.publishedAt ?? .distantPast
                 let bd = b.videos.first?.publishedAt ?? .distantPast
                 if ad == bd {
@@ -153,9 +172,40 @@ struct LibraryView: View {
                 return ad > bd
             }
         case .alphabetical:
-            return channels.sorted { a, b in
+            list = channels.sorted { a, b in
                 a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
             }
+        }
+        if let recent = recentlyAddedChannel {
+            list.insert(recent, at: 0)
+        }
+        return list
+    }
+
+    /// Virtual channel pinned to the top of the list: the 20 newest
+    /// unwatched videos from across every real channel. Nil when there's
+    /// nothing unwatched anywhere (hides the row to keep the list clean).
+    private var recentlyAddedChannel: LibraryChannel? {
+        let newest = channels
+            .flatMap { $0.videos }
+            .filter { !watched.contains($0.youtubeVideoId) }
+            .sorted { $0.publishedAt > $1.publishedAt }
+            .prefix(20)
+        guard !newest.isEmpty else { return nil }
+        return LibraryChannel(
+            id: recentlyAddedID,
+            title: recentlyAddedTitle,
+            thumbnailUrl: nil,
+            videos: Array(newest)
+        )
+    }
+
+    /// Given a video from the Recently Added pool, find the real channel
+    /// it belongs to so playback context (channel queue, same-channel
+    /// picker) stays correct.
+    private func realChannel(for video: LibraryVideo) -> LibraryChannel? {
+        channels.first { ch in
+            ch.videos.contains { $0.youtubeVideoId == video.youtubeVideoId }
         }
     }
 
@@ -168,6 +218,9 @@ struct LibraryView: View {
     }
 
     private func hasNew(_ channel: LibraryChannel) -> Bool {
+        // The Recently Added row is itself a "new content" affordance —
+        // the name already signals freshness so the dot would be redundant.
+        if channel.id == recentlyAddedID { return false }
         guard let latest = channel.videos.first?.publishedAt else { return false }
         let last = seenAt[channel.id.uuidString] ?? .distantPast
         return latest > last
@@ -583,7 +636,11 @@ private struct ChannelRowButton: View {
                 .padding(.vertical, 4)
 
             HStack(spacing: 14) {
-                ChannelAvatar(url: channel.thumbnailUrl, size: 48, progress: progress)
+                if channel.id == recentlyAddedID {
+                    RecentlyAddedIcon(size: 48)
+                } else {
+                    ChannelAvatar(url: channel.thumbnailUrl, size: 48, progress: progress)
+                }
 
                 Text(channel.title)
                     .font(.system(size: 19, weight: .medium))
@@ -776,6 +833,30 @@ private struct VideoCardButton: View {
 }
 
 // MARK: - Helpers
+
+/// Stylized icon for the "Recently Added" virtual channel: soft amber
+/// gradient circle with a sparkles glyph, distinct from real channel
+/// avatars so kids recognize it as the cross-library freshness shortcut.
+private struct RecentlyAddedIcon: View {
+    let size: CGFloat
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(LinearGradient(
+                    colors: [
+                        Color(hue: 0.14, saturation: 0.55, brightness: 0.65),
+                        Color(hue: 0.05, saturation: 0.6, brightness: 0.38),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .frame(width: size, height: size)
+            Image(systemName: "sparkles")
+                .font(.system(size: size * 0.46, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+    }
+}
 
 /// Circular channel avatar with an optional watched-progress ring. The ring
 /// is hidden entirely at 0% so "unwatched" channels stay visually quiet;
