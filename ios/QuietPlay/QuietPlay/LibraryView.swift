@@ -1,9 +1,9 @@
 import SwiftUI
 
 private let paneSplit: CGFloat = 0.28
-private let baseTop = Color(red: 0.045, green: 0.045, blue: 0.05)
-private let baseBottom = Color.black
-private let dividerColor = Color.white.opacity(0.08)
+private let baseTop = Theme.Palette.baseTop
+private let baseBottom = Theme.Palette.base
+private let dividerColor = Theme.Palette.divider
 
 enum SortMode: String {
     case newest
@@ -471,7 +471,7 @@ private struct SearchResultRow: View {
     let onPick: () -> Void
     @FocusState private var focused: Bool
 
-    private static let dotColor = Color(red: 0.039, green: 0.518, blue: 1.0)
+    private static let dotColor = Theme.Palette.accentNew
     private static let relative: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
@@ -573,7 +573,7 @@ private struct ChannelRowButton: View {
     let onPlay: (LibraryVideo) -> Void
     @FocusState private var focused: Bool
 
-    private static let dotColor = Color(red: 0.039, green: 0.518, blue: 1.0)
+    private static let dotColor = Theme.Palette.accentNew
 
     var body: some View {
         HStack(spacing: 0) {
@@ -608,6 +608,10 @@ private struct ChannelRowButton: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(accessibilityLabel))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(Text("Plays the newest unwatched video."))
         .onTapGesture {
             focusedID = channel.id
             onSeen()
@@ -629,6 +633,16 @@ private struct ChannelRowButton: View {
             }
         }
         .animation(Motion.focusSpring, value: focused)
+    }
+
+    private var accessibilityLabel: String {
+        var parts: [String] = [channel.title]
+        if hasNew { parts.append("new videos") }
+        if progress >= 1 { parts.append("all watched") }
+        else if progress > 0 {
+            parts.append("\(Int(progress * 100)) percent watched")
+        }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -698,6 +712,9 @@ private struct VideoCardButton: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("\(video.title), \(Self.relative.localizedString(for: video.publishedAt, relativeTo: Date()))\(watched ? ", watched" : "")"))
+        .accessibilityAddTraits(.isButton)
         .onTapGesture {
             onSelect(video)
         }
@@ -713,7 +730,7 @@ private struct VideoCardButton: View {
                 if watched {
                     ZStack {
                         Circle()
-                            .fill(Color(red: 0.20, green: 0.78, blue: 0.35))
+                            .fill(Theme.Palette.accentWatched)
                         Image(systemName: "checkmark")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(.white)

@@ -46,12 +46,6 @@ final class AppState {
     var isPaused: Bool = true
 
     // Picker state
-    struct PickerCandidate: Identifiable, Hashable {
-        var id: String { video.youtubeVideoId }
-        let video: LibraryVideo
-        let channel: LibraryChannel
-    }
-
     var pickerPresented: Bool = false
     var pickerCandidates: [PickerCandidate] = []
     var pickerTitle: String = ""
@@ -266,34 +260,15 @@ final class AppState {
             return
         }
 
-        // 1) Same-channel unwatched videos older than current, max 3.
-        let tail = channelVideos.dropFirst(channelIndex + 1)
-        let sameChannel = tail
-            .filter { !WatchedVideoStore.isWatched($0.youtubeVideoId) }
-            .prefix(3)
-            .map { PickerCandidate(video: $0, channel: channel) }
-
-        if !sameChannel.isEmpty {
-            pickerCandidates = Array(sameChannel)
-            pickerTitle = "Up next"
-            pickerPresented = true
-            return
-        }
-
-        // 2) Channel exhausted → 3 newest-unwatched from other channels.
-        let otherCandidates = libraryChannels
-            .filter { $0.id != channel.id }
-            .flatMap { ch in ch.videos.map { PickerCandidate(video: $0, channel: ch) } }
-            .filter { !WatchedVideoStore.isWatched($0.video.youtubeVideoId) }
-            .sorted { $0.video.publishedAt > $1.video.publishedAt }
-            .prefix(3)
-
-        pickerCandidates = Array(otherCandidates)
-        if pickerCandidates.isEmpty {
-            pickerTitle = "You've watched everything new"
-        } else {
-            pickerTitle = "You've seen all of \(channel.title) — try something else"
-        }
+        let result = PickerBuilder.build(
+            currentChannel: channel,
+            channelVideos: channelVideos,
+            channelIndex: channelIndex,
+            libraryChannels: libraryChannels,
+            isWatched: WatchedVideoStore.isWatched
+        )
+        pickerCandidates = result.candidates
+        pickerTitle = result.title
         pickerPresented = true
     }
 

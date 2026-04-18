@@ -286,9 +286,9 @@ private struct RetryPill: View {
 
 private struct PickerOverlay: View {
     let title: String
-    let candidates: [AppState.PickerCandidate]
+    let candidates: [PickerCandidate]
     let showChannelName: Bool
-    let onSelect: (AppState.PickerCandidate) -> Void
+    let onSelect: (PickerCandidate) -> Void
     let onBack: () -> Void
 
     var body: some View {
@@ -329,7 +329,7 @@ private struct PickerOverlay: View {
 }
 
 private struct PickerCard: View {
-    let candidate: AppState.PickerCandidate
+    let candidate: PickerCandidate
     let showChannelName: Bool
     let onSelect: () -> Void
     @FocusState private var focused: Bool
