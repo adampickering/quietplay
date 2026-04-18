@@ -11,11 +11,6 @@ private let dividerColor = Theme.Palette.divider
 private let recentlyAddedID = UUID(uuidString: "00000000-0000-0000-0000-0000000000EE")!
 private let recentlyAddedTitle = "Recently Added"
 
-enum SortMode: String {
-    case newest
-    case alphabetical
-}
-
 struct LibraryView: View {
     @Bindable var app: AppState
     let onSelect: (LibraryVideo, LibraryChannel, [LibraryChannel]) -> Void
@@ -27,18 +22,12 @@ struct LibraryView: View {
     @State private var watched: Set<String> = WatchedVideoStore.load()
     @State private var searchPresented: Bool = false
     @State private var searchText: String = ""
-    @AppStorage("library.sort") private var sortRaw: String = SortMode.newest.rawValue
-
-    private var sort: SortMode {
-        SortMode(rawValue: sortRaw) ?? .newest
-    }
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
                 HeaderBar(
                     app: app,
-                    sortRaw: $sortRaw,
                     onOpenSearch: { searchPresented = true }
                 )
 
@@ -168,21 +157,13 @@ struct LibraryView: View {
     }
 
     private var visibleChannels: [LibraryChannel] {
-        var list: [LibraryChannel]
-        switch sort {
-        case .newest:
-            list = channels.sorted { a, b in
-                let ad = a.videos.first?.publishedAt ?? .distantPast
-                let bd = b.videos.first?.publishedAt ?? .distantPast
-                if ad == bd {
-                    return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
-                }
-                return ad > bd
+        var list = channels.sorted { a, b in
+            let ad = a.videos.first?.publishedAt ?? .distantPast
+            let bd = b.videos.first?.publishedAt ?? .distantPast
+            if ad == bd {
+                return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
             }
-        case .alphabetical:
-            list = channels.sorted { a, b in
-                a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
-            }
+            return ad > bd
         }
         if let recent = recentlyAddedChannel {
             list.insert(recent, at: 0)
@@ -262,14 +243,12 @@ struct LibraryView: View {
 
 private struct HeaderBar: View {
     @Bindable var app: AppState
-    @Binding var sortRaw: String
     let onOpenSearch: () -> Void
 
     var body: some View {
         HStack(spacing: 16) {
             LogoPlaceholder()
             Spacer(minLength: 24)
-            SortToggle(sortRaw: $sortRaw)
             SearchButton(action: onOpenSearch)
             ProfileSwitcher(app: app)
         }
@@ -313,62 +292,6 @@ private struct GridHeader: View {
         .padding(.horizontal, 48)
         .padding(.top, 32)
         .padding(.bottom, 8)
-    }
-}
-
-// MARK: - Sort toggle
-
-private struct SortToggle: View {
-    @Binding var sortRaw: String
-
-    var body: some View {
-        HStack(spacing: 0) {
-            SortButton(title: "Newest", active: sortRaw == SortMode.newest.rawValue) {
-                sortRaw = SortMode.newest.rawValue
-            }
-            SortButton(title: "A–Z", active: sortRaw == SortMode.alphabetical.rawValue) {
-                sortRaw = SortMode.alphabetical.rawValue
-            }
-        }
-        .padding(3)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.white.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(.white.opacity(0.09), lineWidth: 1)
-        )
-    }
-}
-
-private struct SortButton: View {
-    let title: String
-    let active: Bool
-    let action: () -> Void
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        Text(title)
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(.white.opacity(active ? 1.0 : (focused ? 0.9 : 0.55)))
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.white.opacity(active ? 0.14 : 0))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.white.opacity(focused ? 0.28 : 0), lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-            .focusable()
-            .focusEffectDisabled()
-            .focused($focused)
-            .onTapGesture(perform: action)
-            .animation(Motion.focusSpring, value: focused)
-            .animation(.easeOut(duration: 0.15), value: active)
     }
 }
 
