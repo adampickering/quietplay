@@ -72,14 +72,16 @@ export async function clientRoutes(app: FastifyInstance) {
       title: string;
       thumbnail_url: string | null;
       published_at: string;
+      duration_seconds: number | null;
     }>(
-      `select channel_id, youtube_video_id, title, thumbnail_url, published_at
+      `select channel_id, youtube_video_id, title, thumbnail_url, published_at, duration_seconds
        from (
          select v.channel_id,
                 v.youtube_video_id,
                 v.title,
                 v.thumbnail_url,
                 v.published_at,
+                v.duration_seconds,
                 row_number() over (
                   partition by v.channel_id
                   order by
@@ -92,7 +94,7 @@ export async function clientRoutes(app: FastifyInstance) {
            and c.is_active = true
            and v.is_short = false
        ) ranked
-       where rn <= 20
+       where rn <= 80
        order by channel_id, rn`,
       [profile.channel_ids],
     );

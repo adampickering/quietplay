@@ -56,13 +56,16 @@ final class AppState {
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
     @ObservationIgnored private var timeObserverToken: Any?
+    /// Last wall-clock second we wrote progress to disk. Throttles
+    /// UserDefaults writes to roughly one every 5 seconds of playback.
+    @ObservationIgnored private var lastSavedProgressAt: Double = -100
 
     init(api: QuietPlayAPI = .fromBundle()) {
         self.api = api
         self.player = AVPlayer()
         self.player.actionAtItemEnd = .none
 
-        // End-of-video → mark watched, show picker
+        // End-of-video → mark watched, clear resume state, show picker.
         self.endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: nil,
@@ -72,6 +75,7 @@ final class AppState {
                 guard let self else { return }
                 if let v = self.currentChannelVideo {
                     WatchedVideoStore.markWatched(v.youtubeVideoId)
+                    PlaybackProgressStore.clear(videoID: v.youtubeVideoId)
                 }
                 self.showPicker()
             }
@@ -97,6 +101,25 @@ final class AppState {
                    t / duration >= 0.8,
                    let v = self.currentChannelVideo {
                     WatchedVideoStore.markWatched(v.youtubeVideoId)
+                    // Once the video is effectively finished, wipe
+                    // resume state so it doesn't show up in Continue
+                    // Watching.
+                    PlaybackProgressStore.clear(videoID: v.youtubeVideoId)
+                    self.lastSavedProgressAt = t
+                } else if
+                    duration.isFinite, duration > 0, t.isFinite,
+                    let v = self.currentChannelVideo,
+                    abs(t - self.lastSavedProgressAt) >= 5
+                {
+                    // Throttled checkpoint: one UserDefaults write per
+                    // ~5s of playback keeps resume-state fresh without
+                    // thrashing disk.
+                    self.lastSavedProgressAt = t
+                    PlaybackProgressStore.save(
+                        videoID: v.youtubeVideoId,
+                        position: t,
+                        duration: duration
+                    )
                 }
             }
         }
@@ -363,10 +386,28 @@ final class AppState {
     private func startPlayback(url: URL) async throws {
         elapsedSeconds = 0
         durationSeconds = 0
+        lastSavedProgressAt = -100
         let item = AVPlayerItem(url: url)
+        // Replace the current item but hold off on calling play() until
+        // after we know whether we need to seek. Otherwise a resumed
+        // video flashes a second or two of frame-zero before jumping,
+        // which reads as a bug.
         player.replaceCurrentItem(with: item)
-        player.play()
         try await waitForReady(item: item)
+
+        if let v = currentChannelVideo,
+           let resume = PlaybackProgressStore.resumePosition(for: v.youtubeVideoId) {
+            let target = CMTime(seconds: resume, preferredTimescale: 600)
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                player.seek(
+                    to: target,
+                    toleranceBefore: .zero,
+                    toleranceAfter: CMTime(seconds: 0.75, preferredTimescale: 600)
+                ) { _ in cont.resume() }
+            }
+        }
+
+        player.play()
     }
 
     private func waitForReady(item: AVPlayerItem) async throws {

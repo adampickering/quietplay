@@ -26,9 +26,11 @@ struct StreamView: View {
             }
 
             if showSpinner && app.isLoading {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(.white)
+                LoadingView(
+                    title: app.currentChannelVideo?.title,
+                    channelTitle: app.currentChannel?.title
+                )
+                .transition(.opacity)
             }
 
             startChip
@@ -98,12 +100,22 @@ struct StreamView: View {
         .onChange(of: app.isLoading, initial: true) { _, loading in
             spinnerTask?.cancel()
             if loading {
+                // Short grace period: quick resolves shouldn't flash the
+                // loading screen. ~180ms is below the perceptual threshold
+                // for "something's happening" but long enough to dodge
+                // cached/instant plays.
                 spinnerTask = Task {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    if !Task.isCancelled { showSpinner = true }
+                    try? await Task.sleep(nanoseconds: 180_000_000)
+                    if !Task.isCancelled {
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            showSpinner = true
+                        }
+                    }
                 }
             } else {
-                showSpinner = false
+                withAnimation(.easeIn(duration: 0.2)) {
+                    showSpinner = false
+                }
             }
         }
     }

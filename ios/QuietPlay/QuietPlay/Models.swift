@@ -13,6 +13,7 @@ struct LibraryVideo: Codable, Identifiable, Hashable {
     let title: String
     let thumbnailUrl: String?
     let publishedAt: Date
+    let durationSeconds: Int?
 
     enum CodingKeys: String, CodingKey {
         case channelId = "channel_id"
@@ -20,6 +21,7 @@ struct LibraryVideo: Codable, Identifiable, Hashable {
         case title
         case thumbnailUrl = "thumbnail_url"
         case publishedAt = "published_at"
+        case durationSeconds = "duration_seconds"
     }
 }
 

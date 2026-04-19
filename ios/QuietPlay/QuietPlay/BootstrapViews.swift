@@ -223,19 +223,36 @@ private struct ProfileCard: View {
         return chars.isEmpty ? String(profile.name.prefix(1)) : chars
     }
 
+    /// Look up a bundled profile photo by name: "Henry" → "ProfileHenry".
+    /// Returns nil when no matching asset exists, which lets ProfileCard
+    /// fall back to initials without an error.
+    private var photo: UIImage? {
+        let key = profile.name
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
+        guard !key.isEmpty else { return nil }
+        return UIImage(named: "Profile\(key.capitalized)")
+    }
+
     var body: some View {
         VStack(spacing: 18) {
             ZStack {
-                Circle()
-                    .fill(Color.white.opacity(focused ? 0.16 : 0.08))
-                Text(initials.uppercased())
-                    .font(.system(size: 48, weight: .semibold))
-                    .foregroundStyle(.white.opacity(focused ? 1.0 : 0.85))
+                if let photo {
+                    Image(uiImage: photo)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Color.white.opacity(focused ? 0.16 : 0.08)
+                    Text(initials.uppercased())
+                        .font(.system(size: 48, weight: .semibold))
+                        .foregroundStyle(.white.opacity(focused ? 1.0 : 0.85))
+                }
             }
             .frame(width: 180, height: 180)
+            .clipShape(Circle())
             .overlay(
                 Circle()
-                    .strokeBorder(.white.opacity(focused ? 0.32 : 0), lineWidth: 2)
+                    .strokeBorder(.white.opacity(focused ? 0.55 : 0.15), lineWidth: focused ? 3 : 1.5)
             )
             .shadow(color: .black.opacity(focused ? 0.5 : 0.25), radius: focused ? 22 : 8, y: focused ? 12 : 4)
 
