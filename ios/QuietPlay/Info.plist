@@ -28,8 +28,11 @@
     <dict/>
     <key>UIUserInterfaceStyle</key>
     <string>Dark</string>
+    <!-- Override for device builds. Simulator hits localhost through
+         the host Mac; real Apple TVs need your Mac's LAN IP here. See
+         the README's "Running on a real Apple TV" section. -->
     <key>QuietPlayAPIBaseURL</key>
-    <string>http://192.168.0.143:8787</string>
+    <string>http://localhost:8787</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>

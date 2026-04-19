@@ -14,3 +14,14 @@ DerivedData/
 ios/.build/
 ios/.swiftpm/
 ios/Package.resolved
+
+# Personal profile photos — kids' faces don't belong in a public repo.
+# Each family sets these up locally; the app falls back to initials when
+# the imageset is missing (see README "Personalizing profile avatars").
+ios/QuietPlay/QuietPlay/Assets.xcassets/ProfileHenry.imageset/
+ios/QuietPlay/QuietPlay/Assets.xcassets/ProfileAdam.imageset/
+
+# Local server state
+server/.env
+scripts/generated/
+/backups/
