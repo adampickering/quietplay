@@ -50,6 +50,10 @@ final class AppState {
     var pickerCandidates: [PickerCandidate] = []
     var pickerTitle: String = ""
 
+    /// -1 = rewind flash visible, +1 = forward flash visible, 0 = hidden.
+    /// Drives a centered HUD in StreamView for the 700ms after a seek.
+    var seekHUDDirection: Int = 0
+
     @ObservationIgnored private var consecutiveSkips: Int = 0
     @ObservationIgnored private var failureTimestamps: [Date] = []
     @ObservationIgnored private var overlayTask: Task<Void, Never>?
@@ -59,6 +63,8 @@ final class AppState {
     /// Last wall-clock second we wrote progress to disk. Throttles
     /// UserDefaults writes to roughly one every 5 seconds of playback.
     @ObservationIgnored private var lastSavedProgressAt: Double = -100
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
+    @ObservationIgnored private var seekHUDTask: Task<Void, Never>?
 
     init(api: QuietPlayAPI = .fromBundle()) {
         self.api = api
@@ -213,6 +219,12 @@ final class AppState {
         channelVideos = channel.videos
         libraryChannels = allChannels
         pickerPresented = false
+        // Wipe any lingering seek-HUD state from the previous playback
+        // session so the new StreamView doesn't inherit a phantom
+        // "+10 s" pill from a seek that happened right before the kid
+        // hit Menu.
+        seekHUDTask?.cancel()
+        seekHUDDirection = 0
 
         let idx = channel.videos.firstIndex(where: { $0.youtubeVideoId == video.youtubeVideoId }) ?? 0
         startChannel(at: idx)
@@ -236,6 +248,47 @@ final class AppState {
 
     func togglePlayPause() {
         if player.rate == 0 { player.play() } else { player.pause() }
+    }
+
+    /// Seek by ±N seconds, clamping to the item's bounds. Called from
+    /// the left/right arrow handlers in StreamView. Flashes a centered
+    /// seek HUD so the kid sees something confirming the skip.
+    func seekRelative(_ delta: Double) {
+        guard let item = player.currentItem else { return }
+        let duration = item.duration.seconds
+        guard duration.isFinite, duration > 0 else { return }
+        let current = player.currentTime().seconds
+        let target = max(0, min(duration - 0.5, current + delta))
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: CMTime(seconds: 0.5, preferredTimescale: 600)
+        )
+        flashSeekHUD(delta > 0 ? 1 : -1)
+    }
+
+    private func flashSeekHUD(_ direction: Int) {
+        seekHUDDirection = direction
+        seekHUDTask?.cancel()
+        seekHUDTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.seekHUDDirection = 0 }
+        }
+    }
+
+    /// Debounced background resolve for a video the kid is merely
+    /// *hovering* on. Server caches the result in Redis, so the actual
+    /// play-press later is an instant hit instead of a 1–2s cold
+    /// resolve. The 350ms delay means arrow-mashing through the grid
+    /// doesn't spam the resolver.
+    func prefetchResolve(videoID: String) {
+        prefetchTask?.cancel()
+        prefetchTask = Task { [api] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if Task.isCancelled { return }
+            _ = try? await api.resolve(videoID: videoID)
+        }
     }
 
     /// Retry the current channel video after a .fallback or .degraded error.

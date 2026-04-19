@@ -7,6 +7,11 @@ struct StreamView: View {
 
     @State private var showSpinner: Bool = false
     @State private var spinnerTask: Task<Void, Never>?
+    /// Subtle enter animation: when we push into playback, the player
+    /// layer starts slightly scaled-down + transparent and settles into
+    /// place. Reads as "that thumbnail just expanded into the video"
+    /// without a full matchedGeometry hero.
+    @State private var entering: Bool = true
 
     var body: some View {
         ZStack {
@@ -14,6 +19,8 @@ struct StreamView: View {
 
             PlayerLayerView(player: app.player)
                 .ignoresSafeArea()
+                .opacity(entering ? 0 : 1)
+                .scaleEffect(entering ? 0.94 : 1)
 
             // Pause-blur: when playback is paused, a soft material pane
             // covers the frame so the paused state reads as "intentional"
@@ -94,9 +101,20 @@ struct StreamView: View {
                     onExit: { handleExit() }
                 )
             }
+
+            if app.seekHUDDirection != 0 {
+                SeekHUD(direction: app.seekHUDDirection)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: app.seekHUDDirection)
         .animation(.easeOut(duration: 0.2), value: app.pickerPresented)
         .animation(.easeInOut(duration: 0.18), value: app.isPaused)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.38)) {
+                entering = false
+            }
+        }
         .onChange(of: app.isLoading, initial: true) { _, loading in
             spinnerTask?.cancel()
             if loading {
@@ -127,12 +145,15 @@ struct StreamView: View {
         if !app.pickerPresented { app.toggleOverlay() }
     }
 
+    // Left/right on the remote now scrub ±10s instead of navigating
+    // channel position. Most-requested behavior for video playback and
+    // closer to what kids expect from every other app.
     private func handleLeft() {
-        if !app.pickerPresented { app.retreat() }
+        if !app.pickerPresented { app.seekRelative(-10) }
     }
 
     private func handleRight() {
-        if !app.pickerPresented { app.advance() }
+        if !app.pickerPresented { app.seekRelative(10) }
     }
 
     private func handleExit() {
@@ -390,6 +411,32 @@ private struct PickerCard: View {
         .onTapGesture(perform: onSelect)
         .scaleEffect(focused ? 1.05 : 1.0)
         .animation(Motion.focusSpring, value: focused)
+    }
+}
+
+/// Brief centered "±10 s" pill that fades in for ~700ms after a seek
+/// press, so the kid sees the skip land even when the frame content
+/// hasn't visibly changed yet.
+private struct SeekHUD: View {
+    let direction: Int  // -1 rewind, +1 forward
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: direction < 0 ? "gobackward.10" : "goforward.10")
+                .font(.system(size: 44, weight: .semibold))
+            Text(direction < 0 ? "−10 s" : "+10 s")
+                .font(.system(size: 32, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 20)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.black.opacity(0.55))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        )
+        .shadow(color: .black.opacity(0.55), radius: 22, y: 10)
+        .accessibilityLabel(Text(direction < 0 ? "Rewound 10 seconds" : "Forward 10 seconds"))
     }
 }
 

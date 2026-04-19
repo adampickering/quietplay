@@ -41,6 +41,12 @@ struct LibraryView: View {
     /// updates the thumbnail progress bars + Continue Watching row.
     @State private var videoProgress: [String: Double] = Self.loadProgressSnapshot()
     @State private var favorites: Set<String> = FavoritesStore.all()
+    /// Cached, materialized sidebar list — real channels plus virtual
+    /// pins. Rebuilt only when source data changes (`channels`,
+    /// `favorites`, `watched`, `videoProgress`), never on every render.
+    /// Before this cache, SwiftUI was recomputing ~7k-video flatMap
+    /// passes on every arrow press; the 2017 Apple TV couldn't keep up.
+    @State private var visibleChannelsCache: [LibraryChannel] = []
 
     private static func loadProgressSnapshot() -> [String: Double] {
         PlaybackProgressStore.all().compactMapValues { p in
@@ -91,6 +97,7 @@ struct LibraryView: View {
                         VStack(spacing: 0) {
                             if let channel = focusedChannel {
                                 GridHeader(channel: channel)
+                                    .zIndex(1)
                             }
                             VideoGrid(
                                 videos: focusedChannel?.videos ?? [],
@@ -104,6 +111,9 @@ struct LibraryView: View {
                                         ? (realChannel(for: video) ?? ch)
                                         : ch
                                     onSelect(video, actual, channels)
+                                },
+                                onFocusVideo: { video in
+                                    app.prefetchResolve(videoID: video.youtubeVideoId)
                                 },
                                 onToggleFavorite: { video in
                                     let isNow = FavoritesStore.toggle(video.youtubeVideoId)
@@ -149,6 +159,19 @@ struct LibraryView: View {
         .task(id: app.currentProfile?.id) {
             await load()
         }
+        .onChange(of: focusedChannel?.id) { _, _ in
+            // Warm URLCache with the focused channel's thumbnails so the
+            // first scroll doesn't flash-in. AsyncImage shares the
+            // shared URLCache, so once these requests land, subsequent
+            // renders are instant.
+            if let ch = focusedChannel {
+                prefetchThumbnails(urls: ch.videos.prefix(40).compactMap { $0.thumbnailUrl })
+            }
+        }
+        .onChange(of: channels) { _, _ in rebuildVisibleChannels() }
+        .onChange(of: favorites) { _, _ in rebuildVisibleChannels() }
+        .onChange(of: watched) { _, _ in rebuildVisibleChannels() }
+        .onChange(of: videoProgress) { _, _ in rebuildVisibleChannels() }
         .onAppear {
             // Pick up any videos that got marked-watched or had their
             // playback position advanced while we were away in Stream
@@ -158,6 +181,24 @@ struct LibraryView: View {
             withAnimation(.easeInOut(duration: 0.3)) {
                 videoProgress = Self.loadProgressSnapshot()
                 favorites = FavoritesStore.all()
+            }
+        }
+    }
+
+    /// Kick off a low-priority background fetch for each URL so
+    /// URLCache warms up ahead of AsyncImage's on-demand loads. Called
+    /// when the focused channel changes; the detached task just
+    /// discards the bytes and lets the shared cache hold them.
+    private func prefetchThumbnails(urls: [String]) {
+        let urls = urls.compactMap(URL.init(string:))
+        guard !urls.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            await withTaskGroup(of: Void.self) { group in
+                for u in urls {
+                    group.addTask {
+                        _ = try? await URLSession.shared.data(from: u)
+                    }
+                }
             }
         }
     }
@@ -190,7 +231,11 @@ struct LibraryView: View {
         )
     }
 
-    private var visibleChannels: [LibraryChannel] {
+    private var visibleChannels: [LibraryChannel] { visibleChannelsCache }
+
+    /// Rebuild the sidebar cache. Runs off the hot render path, called
+    /// explicitly whenever the inputs it reads from change.
+    private func rebuildVisibleChannels() {
         var list = channels.sorted { a, b in
             let ad = a.videos.first?.publishedAt ?? .distantPast
             let bd = b.videos.first?.publishedAt ?? .distantPast
@@ -199,9 +244,6 @@ struct LibraryView: View {
             }
             return ad > bd
         }
-        // Pin Recently Added above real channels; Continue Watching sits
-        // above both — the kid's last-interrupted video is the fastest
-        // thing to surface.
         if let recent = recentlyAddedChannel {
             list.insert(recent, at: 0)
         }
@@ -211,7 +253,7 @@ struct LibraryView: View {
         if let favs = favoritesChannel {
             list.insert(favs, at: 0)
         }
-        return list
+        visibleChannelsCache = list
     }
 
     /// Virtual channel of starred videos. Preserves the order in which
@@ -320,6 +362,12 @@ struct LibraryView: View {
             channels = try await app.api.library(profileID: profile.id)
             focusedChannelID = visibleChannels.first?.id
             loadError = false
+            // Warm URLCache with scaled avatar URLs for every channel
+            // in one burst so the sidebar doesn't fetch 86 originals
+            // on the first scroll.
+            prefetchThumbnails(urls: channels.compactMap {
+                ChannelAvatar.scaledAvatarURL($0.thumbnailUrl)
+            })
         } catch {
             channels = []
             loadError = true
@@ -372,8 +420,20 @@ private struct GridHeader: View {
             Spacer()
         }
         .padding(.horizontal, 48)
-        .padding(.top, 32)
-        .padding(.bottom, 12)
+        .padding(.vertical, 24)
+        // VideoGrid's ScrollView has scrollClipDisabled to preserve
+        // focus shadows, which means scrolling content bleeds up into
+        // the header area. A single translucent material pass is
+        // enough to visually separate the title from the thumbnails
+        // without dropping a heavy black bar on the design.
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .opacity(0.65)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(.white.opacity(0.06)).frame(height: 1)
+                }
+        }
     }
 }
 
@@ -519,6 +579,7 @@ private struct VideoGrid: View {
     let isFavorite: (LibraryVideo) -> Bool
     let otherChannels: [LibraryChannel]
     let onSelect: (LibraryVideo) -> Void
+    let onFocusVideo: (LibraryVideo) -> Void
     let onToggleFavorite: (LibraryVideo) -> Void
     let onPickChannel: (LibraryChannel) -> Void
 
@@ -550,6 +611,7 @@ private struct VideoGrid: View {
                             progressFraction: progressFraction(video),
                             favorite: isFavorite(video),
                             onSelect: onSelect,
+                            onFocus: onFocusVideo,
                             onToggleFavorite: onToggleFavorite
                         )
                     }
@@ -581,6 +643,7 @@ private struct VideoCardButton: View {
     let progressFraction: Double?
     let favorite: Bool
     let onSelect: (LibraryVideo) -> Void
+    let onFocus: (LibraryVideo) -> Void
     let onToggleFavorite: (LibraryVideo) -> Void
     @FocusState private var focused: Bool
 
@@ -602,14 +665,18 @@ private struct VideoCardButton: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(accessibilityLabel))
         .accessibilityAddTraits(.isButton)
-        .onTapGesture {
-            onSelect(video)
-        }
+        .onTapGesture { onSelect(video) }
         .onPlayPauseCommand {
             // Remote's Play/Pause doubles as the "star this" shortcut
             // while we're in the library grid. Gives Henry a one-button
             // way to curate without a settings menu.
             onToggleFavorite(video)
+        }
+        .onChange(of: focused) { _, isFocused in
+            // When a card gains focus, quietly warm up the resolver
+            // (server caches the stream URL in Redis so tap-to-play
+            // lands instantly).
+            if isFocused { onFocus(video) }
         }
         .scaleEffect(focused ? 1.05 : 1.0)
         .animation(Motion.focusSpring, value: focused)
@@ -973,9 +1040,13 @@ private struct ChannelAvatar: View {
 
     var body: some View {
         ZStack {
+            // Small avatars don't need 900px images. YouTube's CDN URLs
+            // carry their size as an inline token ("=s900-..."); rewriting
+            // to =s176 gets us a sharper-at-1x-Retina image that
+            // downloads in a fraction of the bytes.
             Color.white.opacity(0.06)
                 .frame(width: size, height: size)
-                .overlay(ThumbnailImage(url: url))
+                .overlay(ThumbnailImage(url: Self.scaledAvatarURL(url)))
                 .clipShape(Circle())
 
             if progress > 0 {
@@ -996,6 +1067,17 @@ private struct ChannelAvatar: View {
             }
         }
     }
+
+    /// Rewrite YouTube CDN avatar URLs from the default `=s900` size
+    /// token down to `=s176`. Cuts bytes-per-channel by ~25× without
+    /// touching the path/query pattern the CDN expects.
+    static func scaledAvatarURL(_ urlString: String?) -> String? {
+        guard let urlString else { return nil }
+        guard let range = urlString.range(of: #"=s\d+-"#, options: .regularExpression) else {
+            return urlString
+        }
+        return urlString.replacingCharacters(in: range, with: "=s176-")
+    }
 }
 
 /// Full-bleed, heavily blurred backdrop of a video thumbnail. Fades in over
@@ -1014,7 +1096,11 @@ private struct BlurredBackdrop: View {
                             .aspectRatio(contentMode: .fill)
                             .frame(width: geo.size.width, height: geo.size.height)
                             .clipped()
-                            .blur(radius: 80, opaque: true)
+                            // Radius 80 looks lush on M-series Macs but
+                            // costs ~6ms per frame on the 2017 Apple TV.
+                            // 32 still reads as "very blurred" and is
+                            // ~4× cheaper on the GPU.
+                            .blur(radius: 32, opaque: true)
                             .overlay(
                                 LinearGradient(
                                     colors: [.black.opacity(0.45), .black.opacity(0.7)],

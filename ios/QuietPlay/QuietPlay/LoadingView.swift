@@ -98,45 +98,51 @@ struct LoadingView: View {
     }
 
     private var ringAndGlyph: some View {
-        ZStack {
-            // Faint background track.
-            Circle()
-                .stroke(.white.opacity(0.08), lineWidth: 2)
-                .frame(width: 180, height: 180)
+        // Overall canvas size. The bundled LoadingBase.png was drawn on a
+        // 264-unit viewBox with the outer circle at radius 101.4 and a
+        // stroke width of 18; the overlay arc is sized to match those
+        // proportions exactly so it rides the rim of the painted circle.
+        let canvas: CGFloat = 220
+        let arcFrame: CGFloat = canvas * (101.4 * 2 / 264)   // ~169
+        let arcStroke: CGFloat = canvas * (18 / 264)         // ~15
 
-            // Slow sweeping arc — the "we're working on it" signal. Very
-            // short arc so it reads as activity without feeling busy.
+        return ZStack {
+            // Soft breathing halo so the pane doesn't feel static while
+            // the arc spins. Very low opacity so it never fights the
+            // character illustration in the center.
             Circle()
-                .trim(from: 0, to: 0.22)
-                .stroke(
-                    .white.opacity(0.9),
-                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                .fill(.white.opacity(0.05))
+                .frame(width: pulse ? canvas * 0.82 : canvas * 0.66,
+                       height: pulse ? canvas * 0.82 : canvas * 0.66)
+                .blur(radius: 22)
+                .animation(
+                    .easeInOut(duration: 1.9).repeatForever(autoreverses: true),
+                    value: pulse
                 )
-                .frame(width: 180, height: 180)
+
+            Image("LoadingBase")
+                .resizable()
+                .renderingMode(.original)
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: canvas, height: canvas)
+
+            // Spinning white arc. The base PNG has the arc removed so
+            // this overlay is the only one the eye sees turning — no
+            // double-arc ghosting.
+            Circle()
+                .trim(from: 0, to: 0.085)
+                .stroke(
+                    Color.white,
+                    style: StrokeStyle(lineWidth: arcStroke, lineCap: .round)
+                )
+                .frame(width: arcFrame, height: arcFrame)
                 .rotationEffect(.degrees(pulse ? 360 : 0))
                 .animation(
-                    .linear(duration: 1.6).repeatForever(autoreverses: false),
-                    value: pulse
-                )
-
-            // Soft breathing glow behind the glyph.
-            Circle()
-                .fill(.white.opacity(0.06))
-                .frame(width: pulse ? 150 : 120, height: pulse ? 150 : 120)
-                .blur(radius: 20)
-                .animation(
-                    .easeInOut(duration: 1.8).repeatForever(autoreverses: true),
-                    value: pulse
-                )
-
-            Image(systemName: "play.fill")
-                .font(.system(size: 56, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.92))
-                .scaleEffect(pulse ? 1.06 : 0.96)
-                .animation(
-                    .easeInOut(duration: 1.4).repeatForever(autoreverses: true),
+                    .linear(duration: 1.4).repeatForever(autoreverses: false),
                     value: pulse
                 )
         }
+        .frame(width: canvas, height: canvas)
     }
 }
