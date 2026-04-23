@@ -14,6 +14,8 @@ DerivedData/
 ios/.build/
 ios/.swiftpm/
 ios/Package.resolved
+ios/QuietPlay/build/
+ios/QuietPlay/build-device/
 
 # Personal profile photos — kids' faces don't belong in a public repo.
 # Each family sets these up locally; the app falls back to initials when

@@ -233,7 +233,7 @@ struct BedtimeLock: View {
             .ignoresSafeArea()
 
             VStack(spacing: 28) {
-                Image(systemName: "moon.stars.fill")
+                Image(systemName: Self.iconForToday())
                     .font(.system(size: 84, weight: .light))
                     .foregroundStyle(.white.opacity(0.85))
                     .symbolRenderingMode(.hierarchical)
@@ -242,10 +242,12 @@ struct BedtimeLock: View {
                     .font(.system(size: 42, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
 
-                Text("See you in the morning.")
+                Text(Self.subtitleForToday())
                     .font(.system(size: 20, weight: .regular))
                     .foregroundStyle(.white.opacity(0.65))
                     .italic()
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 80)
             }
         }
     }
@@ -253,6 +255,49 @@ struct BedtimeLock: View {
     private var greeting: String {
         if let n = profileName, !n.isEmpty { return "Goodnight, \(n)" }
         return "Goodnight"
+    }
+
+    /// 10 funny-but-calm subtitles, one per night, deterministic by
+    /// day-of-year so the kid sees the same line all evening (no flicker
+    /// across reboots) but a different one tomorrow.
+    private static let goodnightSubtitles: [String] = [
+        "See you in the morning.",
+        "Even YouTube has to sleep.",
+        "Plot twist: it's bedtime.",
+        "All trains in the depot. Lights out.",
+        "The remote has clocked out.",
+        "Brain. Plug. Out.",
+        "Sleep now. New videos load while you snore.",
+        "Eyes get blurry past 7:30. Science.",
+        "Nice try. The TV said no.",
+        "If you watch one more, the TV files a complaint.",
+    ]
+
+    /// Sleepy SF Symbols, rotated alongside the subtitle.
+    private static let goodnightSymbols: [String] = [
+        "moon.stars.fill",
+        "moon.fill",
+        "moon.zzz.fill",
+        "sparkles",
+        "cloud.moon.fill",
+        "bed.double.fill",
+        "powersleep",
+        "star.fill",
+        "zzz",
+        "tortoise.fill",
+    ]
+
+    static func subtitleForToday(now: Date = Date()) -> String {
+        goodnightSubtitles[indexForToday(modulo: goodnightSubtitles.count, now: now)]
+    }
+
+    static func iconForToday(now: Date = Date()) -> String {
+        goodnightSymbols[indexForToday(modulo: goodnightSymbols.count, now: now)]
+    }
+
+    private static func indexForToday(modulo n: Int, now: Date) -> Int {
+        let day = Calendar.current.ordinality(of: .day, in: .year, for: now) ?? 1
+        return ((day - 1) % n + n) % n
     }
 
     /// Curfew window: 19:30–06:00 local. Inclusive of the start edge,
@@ -318,14 +363,15 @@ enum FiveMinuteWarningStore {
         UserDefaults.standard.set(true, forKey: prefix + todayKey)
     }
 
-    /// We fire anywhere in a five-minute window starting at 18:55 so a
-    /// late-starting video at 18:56 still catches the warning. Stops
-    /// at 19:00 — after that it'd read as a lie.
+    /// Fires anywhere in the 19:25–19:30 window so a late-starting
+    /// video at 19:26 still catches the warning. Stops at 19:30 — after
+    /// that the BedtimeLock takes the screen, and the toast would be a
+    /// lie (zero minutes left, not five).
     static func inFireWindow(now: Date = Date()) -> Bool {
         let c = Calendar.current.dateComponents([.hour, .minute], from: now)
         guard let h = c.hour, let m = c.minute else { return false }
         let minutes = h * 60 + m
-        return minutes >= 18 * 60 + 55 && minutes <= 19 * 60
+        return minutes >= 19 * 60 + 25 && minutes < 19 * 60 + 30
     }
 }
 

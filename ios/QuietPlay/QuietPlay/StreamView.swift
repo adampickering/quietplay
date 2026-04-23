@@ -12,11 +12,17 @@ struct StreamView: View {
     /// place. Reads as "that thumbnail just expanded into the video"
     /// without a full matchedGeometry hero.
     @State private var entering: Bool = true
-    /// 5-minutes-left warning pill. Flips true at 18:55, flips false
-    /// eight seconds later. `FiveMinuteWarningStore` persists the
-    /// "already shown tonight" flag so the kid doesn't see it twice.
+    /// 5-minutes-left warning pill. Flips true inside the 19:25–19:30
+    /// window, flips false eight seconds later. `FiveMinuteWarningStore`
+    /// persists the "already shown tonight" flag so the kid doesn't see
+    /// it twice in one evening.
     @State private var fiveMinutesWarningVisible: Bool = false
     @State private var fiveMinutesTask: Task<Void, Never>?
+    /// Seek acceleration state: rapid same-direction presses grow the
+    /// stride so a three-tap burst jumps 10 + 20 + 30 = 60 seconds.
+    @State private var seekStride: Int = 10
+    @State private var lastSeekDirection: Int = 0
+    @State private var lastSeekAt: Date = .distantPast
 
     var body: some View {
         ZStack {
@@ -27,12 +33,10 @@ struct StreamView: View {
                 .opacity(entering ? 0 : 1)
                 .scaleEffect(entering ? 0.94 : 1)
 
-            // Pause-blur: when playback is paused, a soft material pane
-            // covers the frame so the paused state reads as "intentional"
-            // and the overlay/centered play icon stay crisp on busy frames.
+            // Pause dim: a soft black wash instead of a full blur so the
+            // frame is still legible behind the overlay. Dull, not hidden.
             if app.isPaused && app.mode == .playing {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
+                Color.black.opacity(0.32)
                     .ignoresSafeArea()
                     .transition(.opacity)
             }
@@ -50,14 +54,18 @@ struct StreamView: View {
                 .animation(.easeInOut(duration: 0.18), value: app.overlayVisible)
                 .animation(.easeInOut(duration: 0.18), value: app.pickerPresented)
 
-            // Big centered play icon while paused — clear visual cue the
-            // video is stopped. Fades with overlay transitions.
-            if app.isPaused && app.mode == .playing && !app.pickerPresented {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 90, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .shadow(color: .black.opacity(0.55), radius: 20, y: 6)
-                    .transition(.opacity)
+            // Paused card: play glyph + title + channel + elapsed / total.
+            // Stays readable over the lightly-dimmed frame underneath.
+            // Suppressed while loading so it doesn't stack on the
+            // LoadingView's anchor logo + title block.
+            if app.isPaused && app.mode == .playing && !app.pickerPresented && !app.isLoading {
+                PausedCard(
+                    videoTitle: app.currentChannelVideo?.title,
+                    channelTitle: app.currentChannel?.title,
+                    elapsed: app.elapsedSeconds,
+                    duration: app.durationSeconds
+                )
+                .transition(.opacity)
             }
 
             switch app.mode {
@@ -107,8 +115,8 @@ struct StreamView: View {
                 )
             }
 
-            if app.seekHUDDirection != 0 {
-                SeekHUD(direction: app.seekHUDDirection)
+            if app.seekHUDSeconds != 0 {
+                SeekHUD(seconds: app.seekHUDSeconds)
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
 
@@ -143,7 +151,7 @@ struct StreamView: View {
                 .allowsHitTesting(false)
             }
         }
-        .animation(.easeOut(duration: 0.18), value: app.seekHUDDirection)
+        .animation(.easeOut(duration: 0.18), value: app.seekHUDSeconds)
         .animation(.easeInOut(duration: 0.35), value: fiveMinutesWarningVisible)
         .animation(.easeInOut(duration: 0.3), value: app.autoAdvanceActive)
         .animation(.easeOut(duration: 0.2), value: app.pickerPresented)
@@ -188,15 +196,28 @@ struct StreamView: View {
         if !app.pickerPresented { app.toggleOverlay() }
     }
 
-    // Left/right on the remote now scrub ±10s instead of navigating
-    // channel position. Most-requested behavior for video playback and
-    // closer to what kids expect from every other app.
+    // Left/right on the remote scrub the video. Each press jumps 10s,
+    // and rapid same-direction presses accelerate: 10 → 20 → 30 → 60s
+    // (cap). Reverses or a >900ms pause reset the stride back to 10s,
+    // so a single tap is always a precise 10-second nudge.
     private func handleLeft() {
-        if !app.pickerPresented { app.seekRelative(-10) }
+        guard !app.pickerPresented else { return }
+        app.seekRelative(Double(-nextSeekStride(direction: -1)))
     }
 
     private func handleRight() {
-        if !app.pickerPresented { app.seekRelative(10) }
+        guard !app.pickerPresented else { return }
+        app.seekRelative(Double(nextSeekStride(direction: 1)))
+    }
+
+    private func nextSeekStride(direction: Int) -> Int {
+        let now = Date()
+        let withinChain = direction == lastSeekDirection
+            && now.timeIntervalSince(lastSeekAt) <= 0.9
+        seekStride = withinChain ? min(seekStride + 10, 60) : 10
+        lastSeekDirection = direction
+        lastSeekAt = now
+        return seekStride
     }
 
     private func handleExit() {
@@ -204,7 +225,7 @@ struct StreamView: View {
     }
 
     /// Poll every 30 seconds while playback is mounted. If we've
-    /// entered the 18:55–19:00 firing window and haven't already
+    /// entered the 19:25–19:30 firing window and haven't already
     /// flashed tonight, show the toast for 8 seconds, then mark as
     /// shown so the kid doesn't see it on every subsequent video.
     private func startFiveMinuteWarningPoll() {
@@ -560,17 +581,32 @@ private struct UpNextChip: View {
     }
 }
 
-/// Brief centered "±10 s" pill that fades in for ~700ms after a seek
+/// Brief centered "±N s" pill that fades in for ~700ms after a seek
 /// press, so the kid sees the skip land even when the frame content
-/// hasn't visibly changed yet.
+/// hasn't visibly changed yet. The magnitude grows when presses chain
+/// together (10 → 20 → 30 → 60s).
 private struct SeekHUD: View {
-    let direction: Int  // -1 rewind, +1 forward
+    let seconds: Int  // signed: − rewind, + forward
+
+    private var rewind: Bool { seconds < 0 }
+    private var magnitude: Int { abs(seconds) }
+    private var glyph: String {
+        // SF Symbols only ships a few baked-in numbers (10/15/30/45/60/75/90).
+        switch magnitude {
+        case 10: return rewind ? "gobackward.10" : "goforward.10"
+        case 15: return rewind ? "gobackward.15" : "goforward.15"
+        case 30: return rewind ? "gobackward.30" : "goforward.30"
+        case 45: return rewind ? "gobackward.45" : "goforward.45"
+        case 60: return rewind ? "gobackward.60" : "goforward.60"
+        default: return rewind ? "gobackward" : "goforward"
+        }
+    }
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: direction < 0 ? "gobackward.10" : "goforward.10")
+            Image(systemName: glyph)
                 .font(.system(size: 44, weight: .semibold))
-            Text(direction < 0 ? "−10 s" : "+10 s")
+            Text("\(rewind ? "−" : "+")\(magnitude) s")
                 .font(.system(size: 32, weight: .semibold, design: .rounded))
         }
         .foregroundStyle(.white)
@@ -582,7 +618,7 @@ private struct SeekHUD: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         )
         .shadow(color: .black.opacity(0.55), radius: 22, y: 10)
-        .accessibilityLabel(Text(direction < 0 ? "Rewound 10 seconds" : "Forward 10 seconds"))
+        .accessibilityLabel(Text(rewind ? "Rewound \(magnitude) seconds" : "Forward \(magnitude) seconds"))
     }
 }
 
@@ -617,3 +653,50 @@ private struct BackToLibraryButton: View {
     }
 }
 
+private struct PausedCard: View {
+    let videoTitle: String?
+    let channelTitle: String?
+    let elapsed: Double
+    let duration: Double
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Image(systemName: "play.fill")
+                .font(.system(size: 76, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .shadow(color: .black.opacity(0.55), radius: 18, y: 6)
+
+            VStack(spacing: 8) {
+                if let v = videoTitle {
+                    Text(v)
+                        .font(.system(size: 32, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .kerning(-0.2)
+                }
+                if let ch = channelTitle {
+                    Text(ch)
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+                Text("\(Self.format(elapsed)) / \(Self.format(duration))")
+                    .font(.system(size: 18, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.top, 4)
+            }
+            .shadow(color: .black.opacity(0.6), radius: 10, y: 2)
+            .padding(.horizontal, 80)
+        }
+    }
+
+    private static func format(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%d:%02d", m, s)
+    }
+}

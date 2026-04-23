@@ -52,7 +52,10 @@ final class AppState {
 
     /// -1 = rewind flash visible, +1 = forward flash visible, 0 = hidden.
     /// Drives a centered HUD in StreamView for the 700ms after a seek.
-    var seekHUDDirection: Int = 0
+    /// Signed seconds for the most recent seek, drives the SeekHUD pill.
+    /// Sign = direction (− rewind, + forward); magnitude = how far we
+    /// jumped, so the HUD can display "+30 s" after rapid presses.
+    var seekHUDSeconds: Int = 0
 
     /// Flipped true when today's cumulative playback passes two hours
     /// and the break modal hasn't been shown yet. RootView overlays a
@@ -290,7 +293,7 @@ final class AppState {
         // "+10 s" pill from a seek that happened right before the kid
         // hit Menu.
         seekHUDTask?.cancel()
-        seekHUDDirection = 0
+        seekHUDSeconds = 0
         cancelAutoAdvance()
 
         let idx = channel.videos.firstIndex(where: { $0.youtubeVideoId == video.youtubeVideoId }) ?? 0
@@ -338,16 +341,16 @@ final class AppState {
             toleranceBefore: .zero,
             toleranceAfter: CMTime(seconds: 0.5, preferredTimescale: 600)
         )
-        flashSeekHUD(delta > 0 ? 1 : -1)
+        flashSeekHUD(Int(delta.rounded()))
     }
 
-    private func flashSeekHUD(_ direction: Int) {
-        seekHUDDirection = direction
+    private func flashSeekHUD(_ signedSeconds: Int) {
+        seekHUDSeconds = signedSeconds
         seekHUDTask?.cancel()
         seekHUDTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.seekHUDDirection = 0 }
+            await MainActor.run { self?.seekHUDSeconds = 0 }
         }
     }
 
