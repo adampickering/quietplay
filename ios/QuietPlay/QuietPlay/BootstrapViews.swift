@@ -15,63 +15,24 @@ struct SplashView: View {
 
     var body: some View {
         ZStack {
-            bgGradient.ignoresSafeArea()
+            Color.black.ignoresSafeArea()
 
-            // Slow ambient drift: two big soft radial glows orbiting the
-            // canvas. Each has a different period so they never sync up.
-            // Low opacity, screen blend, so the logo reads over them.
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                ZStack {
-                    softGlow(
-                        hue: 0.58,
-                        cx: 0.35 + 0.18 * sin(t * 0.23),
-                        cy: 0.42 + 0.12 * cos(t * 0.19)
-                    )
-                    softGlow(
-                        hue: 0.08,
-                        cx: 0.68 + 0.15 * cos(t * 0.31),
-                        cy: 0.58 + 0.10 * sin(t * 0.27)
-                    )
-                }
+            // Branded splash artwork fills the whole frame. Subtle pulse
+            // keeps it alive without fighting for attention.
+            Image("LoadingSplash")
+                .resizable()
+                .renderingMode(.original)
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fill)
                 .ignoresSafeArea()
-                .blendMode(.screen)
-            }
-
-            VStack(spacing: 20) {
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 84, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .opacity(pulse ? 0.92 : 0.6)
-                    .scaleEffect(pulse ? 1.03 : 1.0)
-                    .shadow(color: .white.opacity(pulse ? 0.25 : 0.1), radius: pulse ? 24 : 10)
-                Text("QuietPlay")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .kerning(-0.3)
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(.white.opacity(0.6))
-                    .padding(.top, 8)
-            }
+                .scaleEffect(pulse ? 1.012 : 1.0)
+                .opacity(pulse ? 1.0 : 0.92)
         }
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
                 pulse = true
             }
         }
-    }
-
-    private func softGlow(hue: Double, cx: Double, cy: Double) -> some View {
-        RadialGradient(
-            colors: [
-                Color(hue: hue, saturation: 0.35, brightness: 0.55).opacity(0.22),
-                .clear,
-            ],
-            center: UnitPoint(x: cx, y: cy),
-            startRadius: 0,
-            endRadius: 700
-        )
     }
 }
 

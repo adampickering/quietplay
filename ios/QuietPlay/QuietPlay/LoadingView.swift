@@ -25,6 +25,16 @@ struct LoadingView: View {
         "Rewinding in reverse…",
         "Polishing the lens…",
         "Feeding the hamster…",
+        // British flavour — rare sightings for an old-soul 12-year-old.
+        "Checking with the Fat Controller…",
+        "Oiling the pistons…",
+        "Consulting the Railway Series…",
+        "Waiting for the signalman…",
+        "Wagons rolllll…",
+        "Mind the gap.",
+        "Don't panic.",
+        "All aboard!",
+        "Putting the kettle on…",
     ]
 
     var body: some View {

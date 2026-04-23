@@ -30,11 +30,33 @@ struct LibraryChannel: Codable, Identifiable, Hashable {
     let title: String
     let thumbnailUrl: String?
     let videos: [LibraryVideo]
+    let category: String?
+    let isRecommended: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id, title
+        case id, title, category
         case thumbnailUrl = "thumbnail_url"
         case videos
+        case isRecommended = "is_recommended"
+    }
+
+    init(id: UUID, title: String, thumbnailUrl: String?, videos: [LibraryVideo], category: String?, isRecommended: Bool = false) {
+        self.id = id
+        self.title = title
+        self.thumbnailUrl = thumbnailUrl
+        self.videos = videos
+        self.category = category
+        self.isRecommended = isRecommended
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        thumbnailUrl = try c.decodeIfPresent(String.self, forKey: .thumbnailUrl)
+        videos = try c.decode([LibraryVideo].self, forKey: .videos)
+        category = try c.decodeIfPresent(String.self, forKey: .category)
+        isRecommended = try c.decodeIfPresent(Bool.self, forKey: .isRecommended) ?? false
     }
 }
 

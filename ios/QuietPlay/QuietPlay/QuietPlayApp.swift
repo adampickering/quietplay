@@ -4,12 +4,21 @@ import SwiftUI
 @main
 struct QuietPlayApp: App {
     @State private var app = AppState()
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
             RootView(app: app)
                 .task { await app.bootstrap() }
                 .preferredColorScheme(.dark)
+                .onChange(of: phase) { _, newPhase in
+                    if newPhase == .background || newPhase == .inactive {
+                        // Push whatever's in the telemetry queue before
+                        // tvOS suspends us — otherwise last few minutes
+                        // of watching never land on the server.
+                        Task { await app.flushTelemetry() }
+                    }
+                }
         }
     }
 }
@@ -21,8 +30,34 @@ struct RootView: View {
 
     @State private var path: [Route] = []
     @State private var showTutorial: Bool = !TutorialFlag.hasSeen()
+    /// Flips true after a minimum splash-display duration. The splash
+    /// stays up until BOTH bootstrap is done AND this elapses, so fast
+    /// launches don't flash the splash for half a frame.
+    @State private var splashHoldElapsed: Bool = false
 
     var body: some View {
+        ZStack {
+            if !splashHoldElapsed || app.bootstrapState == .loading {
+                SplashView()
+                    .transition(.opacity)
+                    .task {
+                        try? await Task.sleep(nanoseconds: 2_200_000_000)
+                        splashHoldElapsed = true
+                    }
+            } else {
+                bootstrapContent
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.55), value: splashHoldElapsed)
+        .animation(.easeInOut(duration: 0.55), value: app.bootstrapState)
+        .animation(.easeInOut(duration: 0.25), value: app.profilePickerPresented)
+        .animation(.easeInOut(duration: 0.25), value: showTutorial)
+        .animation(.easeInOut(duration: 0.25), value: app.breakSuggested)
+    }
+
+    @ViewBuilder
+    private var bootstrapContent: some View {
         ZStack {
             switch app.bootstrapState {
             case .loading:
@@ -57,10 +92,45 @@ struct RootView: View {
                 }
                 .transition(.opacity)
             }
+
+            // Two-hour watch-time nudge. Sits over everything —
+            // library or playback — because that's the moment the kid
+            // needs to hear it. Dismissing persists so we don't nag
+            // twice in the same day. Suppressed during bedtime so the
+            // kid sees "Goodnight" alone, not two modals fighting.
+            if app.breakSuggested && !BedtimeLock.isActive() {
+                BreakModal(onDismiss: { app.dismissBreakSuggestion() })
+                    .transition(.opacity)
+                    .zIndex(100)
+            }
+
+            // Bedtime curfew (19:30–06:00). Re-checks every minute via
+            // TimelineView — no polling timer needed. zIndex on the
+            // outer TimelineView (not the inner BedtimeLock) so it
+            // beats sibling overlays like BreakModal.
+            TimelineView(.periodic(from: .now, by: 60)) { ctx in
+                if BedtimeLock.isActive(now: ctx.date) {
+                    BedtimeLock(profileName: app.currentProfile?.name)
+                        .transition(.opacity)
+                        .onExitCommand { /* eat Menu */ }
+                        .onPlayPauseCommand { /* eat Play/Pause */ }
+                        .onAppear {
+                            // Stop any in-flight playback so audio
+                            // doesn't continue behind the lock, and
+                            // drop the break nag so it can't reappear
+                            // if the kid dismisses bedtime somehow.
+                            app.player.pause()
+                            app.breakSuggested = false
+                        }
+                }
+            }
+            .zIndex(300)
+            .allowsHitTesting(BedtimeLock.isActive())
         }
         .animation(.easeInOut(duration: 0.25), value: app.bootstrapState)
         .animation(.easeInOut(duration: 0.25), value: app.profilePickerPresented)
         .animation(.easeInOut(duration: 0.25), value: showTutorial)
+        .animation(.easeInOut(duration: 0.25), value: app.breakSuggested)
     }
 
     private var libraryStack: some View {

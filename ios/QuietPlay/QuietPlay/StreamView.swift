@@ -12,6 +12,11 @@ struct StreamView: View {
     /// place. Reads as "that thumbnail just expanded into the video"
     /// without a full matchedGeometry hero.
     @State private var entering: Bool = true
+    /// 5-minutes-left warning pill. Flips true at 18:55, flips false
+    /// eight seconds later. `FiveMinuteWarningStore` persists the
+    /// "already shown tonight" flag so the kid doesn't see it twice.
+    @State private var fiveMinutesWarningVisible: Bool = false
+    @State private var fiveMinutesTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -92,7 +97,7 @@ struct StreamView: View {
             // SwiftUI's focus engine needs control of the remote so the
             // picker cards, retry pill, or Back button can be focused and
             // selected.
-            if !app.pickerPresented && app.mode == .playing {
+            if !app.pickerPresented && !app.autoAdvanceActive && app.mode == .playing {
                 RemoteInputView(
                     onSelect: { handleSelect() },
                     onLeft: { handleLeft() },
@@ -106,14 +111,52 @@ struct StreamView: View {
                 SeekHUD(direction: app.seekHUDDirection)
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
+
+            if app.autoAdvanceActive {
+                VStack {
+                    Spacer()
+                    UpNextChip(
+                        title: app.autoAdvanceNextTitle,
+                        secondsLeft: app.autoAdvanceSecondsLeft,
+                        onPlayNow: { app.skipToAutoAdvanceNow() },
+                        onCancel: { app.cancelAutoAdvance() }
+                    )
+                    .padding(.bottom, 72)
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
+            // "5 minutes left" wind-down nudge. Top-right so it doesn't
+            // collide with the title chip that lives top-left. Ignores
+            // the remote, doesn't pause playback.
+            if fiveMinutesWarningVisible {
+                VStack {
+                    HStack {
+                        Spacer()
+                        FiveMinutesLeftToast()
+                            .padding(.top, 44)
+                            .padding(.trailing, 56)
+                    }
+                    Spacer()
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .allowsHitTesting(false)
+            }
         }
         .animation(.easeOut(duration: 0.18), value: app.seekHUDDirection)
+        .animation(.easeInOut(duration: 0.35), value: fiveMinutesWarningVisible)
+        .animation(.easeInOut(duration: 0.3), value: app.autoAdvanceActive)
         .animation(.easeOut(duration: 0.2), value: app.pickerPresented)
         .animation(.easeInOut(duration: 0.18), value: app.isPaused)
         .onAppear {
             withAnimation(.easeOut(duration: 0.38)) {
                 entering = false
             }
+            startFiveMinuteWarningPoll()
+        }
+        .onDisappear {
+            fiveMinutesTask?.cancel()
+            fiveMinutesTask = nil
         }
         .onChange(of: app.isLoading, initial: true) { _, loading in
             spinnerTask?.cancel()
@@ -158,6 +201,27 @@ struct StreamView: View {
 
     private func handleExit() {
         onExitToLibrary()
+    }
+
+    /// Poll every 30 seconds while playback is mounted. If we've
+    /// entered the 18:55–19:00 firing window and haven't already
+    /// flashed tonight, show the toast for 8 seconds, then mark as
+    /// shown so the kid doesn't see it on every subsequent video.
+    private func startFiveMinuteWarningPoll() {
+        fiveMinutesTask?.cancel()
+        fiveMinutesTask = Task { @MainActor in
+            while !Task.isCancelled {
+                if FiveMinuteWarningStore.inFireWindow(),
+                   !FiveMinuteWarningStore.hasShownTonight() {
+                    fiveMinutesWarningVisible = true
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    if Task.isCancelled { break }
+                    fiveMinutesWarningVisible = false
+                    FiveMinuteWarningStore.markShownTonight()
+                }
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
     }
 
     // When all candidates are from the same channel as the current one we can
@@ -411,6 +475,88 @@ private struct PickerCard: View {
         .onTapGesture(perform: onSelect)
         .scaleEffect(focused ? 1.05 : 1.0)
         .animation(Motion.focusSpring, value: focused)
+    }
+}
+
+/// Netflix/YouTube-style "Up next in 5s" bubble that replaces the
+/// picker between videos. Shows the title, a live countdown, and two
+/// focusable actions — Play now (click center) and Cancel.
+private struct UpNextChip: View {
+    let title: String
+    let secondsLeft: Int
+    let onPlayNow: () -> Void
+    let onCancel: () -> Void
+
+    @FocusState private var focusedButton: Button?
+    private enum Button: Hashable { case play, cancel }
+
+    var body: some View {
+        HStack(spacing: 24) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Up next")
+                    .font(.system(size: 13, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(.white.opacity(0.6))
+                Text(title)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .frame(maxWidth: 520, alignment: .leading)
+            }
+
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.15), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: CGFloat(secondsLeft) / 5)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.9), value: secondsLeft)
+                Text("\(secondsLeft)")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 48, height: 48)
+
+            HStack(spacing: 12) {
+                chipButton(label: "Play now", systemImage: "play.fill", kind: .play, action: onPlayNow)
+                chipButton(label: "Cancel", systemImage: "xmark", kind: .cancel, action: onCancel)
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.black.opacity(0.7))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+        .padding(.horizontal, 48)
+    }
+
+    private func chipButton(label: String, systemImage: String, kind: Button, action: @escaping () -> Void) -> some View {
+        let isFocused = focusedButton == kind
+        return HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+            Text(label)
+                .font(.system(size: 15, weight: .medium))
+        }
+        .foregroundStyle(.white.opacity(isFocused ? 1.0 : 0.85))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Capsule().fill(.white.opacity(isFocused ? 0.22 : 0.08)))
+        .overlay(Capsule().strokeBorder(.white.opacity(isFocused ? 0.4 : 0.14), lineWidth: 1))
+        .contentShape(Capsule())
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focusedButton, equals: kind)
+        .onTapGesture(perform: action)
+        .animation(Motion.focusSpring, value: isFocused)
     }
 }
 

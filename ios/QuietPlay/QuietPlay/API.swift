@@ -56,6 +56,27 @@ struct QuietPlayAPI {
         try await get("/resolve/\(videoID)")
     }
 
+    /// Batched telemetry push. Silent on failure — caller decides
+    /// whether to restore the snapshot to the queue.
+    func postWatchEvents(profileID: UUID, events: [String: Int]) async throws {
+        let payload: [String: Any] = [
+            "profile_id": profileID.uuidString.lowercased(),
+            "events": events.map { (id, seconds) -> [String: Any] in
+                ["youtube_video_id": id, "seconds": seconds]
+            }
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        guard let url = URL(string: "/events/watch", relativeTo: baseURL) else { throw APIError.badURL }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        let (_, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw APIError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+    }
+
     private func get<T: Decodable>(_ path: String) async throws -> T {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw APIError.badURL }
         let (data, response): (Data, URLResponse)

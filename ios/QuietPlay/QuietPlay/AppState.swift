@@ -54,6 +54,21 @@ final class AppState {
     /// Drives a centered HUD in StreamView for the 700ms after a seek.
     var seekHUDDirection: Int = 0
 
+    /// Flipped true when today's cumulative playback passes two hours
+    /// and the break modal hasn't been shown yet. RootView overlays a
+    /// BreakModal whenever this is set.
+    var breakSuggested: Bool = false
+
+    // MARK: Auto-advance
+
+    /// Between videos we show a 5-second "Up next" card instead of
+    /// surfacing the picker. Netflix-style continuous playback.
+    var autoAdvanceActive: Bool = false
+    var autoAdvanceSecondsLeft: Int = 0
+    var autoAdvanceNextTitle: String = ""
+    @ObservationIgnored private var autoAdvanceTargetIndex: Int?
+    @ObservationIgnored private var autoAdvanceTask: Task<Void, Never>?
+
     @ObservationIgnored private var consecutiveSkips: Int = 0
     @ObservationIgnored private var failureTimestamps: [Date] = []
     @ObservationIgnored private var overlayTask: Task<Void, Never>?
@@ -65,13 +80,17 @@ final class AppState {
     @ObservationIgnored private var lastSavedProgressAt: Double = -100
     @ObservationIgnored private var prefetchTask: Task<Void, Never>?
     @ObservationIgnored private var seekHUDTask: Task<Void, Never>?
+    @ObservationIgnored private var telemetryFlushTask: Task<Void, Never>?
 
     init(api: QuietPlayAPI = .fromBundle()) {
         self.api = api
         self.player = AVPlayer()
         self.player.actionAtItemEnd = .none
 
-        // End-of-video → mark watched, clear resume state, show picker.
+        // End-of-video → mark watched, clear resume state, try to
+        // auto-advance to the next unwatched video in the same channel.
+        // Falls back to the picker when there's nothing left to queue
+        // (kid has finished everything in this channel).
         self.endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: nil,
@@ -83,7 +102,7 @@ final class AppState {
                     WatchedVideoStore.markWatched(v.youtubeVideoId)
                     PlaybackProgressStore.clear(videoID: v.youtubeVideoId)
                 }
-                self.showPicker()
+                self.startAutoAdvance()
             }
         }
 
@@ -95,6 +114,20 @@ final class AppState {
                 guard let self else { return }
                 self.isPaused = self.player.rate == 0
                 guard let item = self.player.currentItem else { return }
+                // Accumulate watch time whenever playback is actually
+                // advancing. Used to trigger the 2-hour "take a break"
+                // modal via WatchTimeTracker.
+                if !self.isPaused {
+                    WatchTimeTracker.accumulate(seconds: 1)
+                    if let v = self.currentChannelVideo {
+                        TelemetryQueue.enqueue(videoID: v.youtubeVideoId)
+                    }
+                    if !self.breakSuggested,
+                       !WatchTimeTracker.hasShownBreakToday(),
+                       WatchTimeTracker.todaySeconds() >= 2 * 60 * 60 {
+                        self.breakSuggested = true
+                    }
+                }
                 let duration = item.duration.seconds
                 let t = time.seconds
                 if duration.isFinite, duration > 0 {
@@ -148,6 +181,7 @@ final class AppState {
     func bootstrap() async {
         retryTask?.cancel()
         bootstrapState = .loading
+        startTelemetryFlushLoopIfNeeded()
         do {
             let list = try await api.profiles()
             profiles = list.sorted { $0.position < $1.position }
@@ -183,6 +217,33 @@ final class AppState {
         Task { await switchProfile(profile) }
     }
 
+    /// Background loop that flushes `TelemetryQueue` to the server
+    /// every 60 seconds. Runs for the lifetime of the app; idle quickly
+    /// when the queue is empty. Started from `bootstrap()`.
+    private func startTelemetryFlushLoopIfNeeded() {
+        guard telemetryFlushTask == nil else { return }
+        telemetryFlushTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                if Task.isCancelled { return }
+                await self?.flushTelemetry()
+            }
+        }
+    }
+
+    /// Drain + POST. On failure, put the snapshot back so we don't
+    /// lose watch-time when the Mac server is briefly offline.
+    func flushTelemetry() async {
+        guard let profile = currentProfile else { return }
+        let snapshot = TelemetryQueue.drain()
+        guard !snapshot.isEmpty else { return }
+        do {
+            try await api.postWatchEvents(profileID: profile.id, events: snapshot)
+        } catch {
+            TelemetryQueue.restore(snapshot)
+        }
+    }
+
     private func scheduleAutoRetry() {
         retryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 30_000_000_000)
@@ -201,6 +262,10 @@ final class AppState {
     }
 
     func switchProfile(_ profile: Profile) async {
+        // Flush any pending watch events under the OUTGOING profile
+        // before we switch, so the dashboard doesn't attribute Adam's
+        // seconds to Henry.
+        await flushTelemetry()
         currentProfile = profile
         consecutiveSkips = 0
         failureTimestamps.removeAll()
@@ -208,6 +273,7 @@ final class AppState {
         channelIndex = 0
         currentChannel = nil
         pickerPresented = false
+        cancelAutoAdvance()
         player.replaceCurrentItem(with: nil)
         mode = .loading
     }
@@ -225,6 +291,7 @@ final class AppState {
         // hit Menu.
         seekHUDTask?.cancel()
         seekHUDDirection = 0
+        cancelAutoAdvance()
 
         let idx = channel.videos.firstIndex(where: { $0.youtubeVideoId == video.youtubeVideoId }) ?? 0
         startChannel(at: idx)
@@ -248,6 +315,13 @@ final class AppState {
 
     func togglePlayPause() {
         if player.rate == 0 { player.play() } else { player.pause() }
+    }
+
+    /// Kid acknowledged the take-a-break nudge. Persist so we don't
+    /// re-pester him until tomorrow.
+    func dismissBreakSuggestion() {
+        breakSuggested = false
+        WatchTimeTracker.markBreakShown()
     }
 
     /// Seek by ±N seconds, clamping to the item's bounds. Called from
@@ -322,6 +396,75 @@ final class AppState {
             guard !Task.isCancelled else { return }
             await MainActor.run { self?.overlayVisible = false }
         }
+    }
+
+    // MARK: Auto-advance
+
+    /// Kick off the 5-second countdown to the next unwatched video in
+    /// the current channel. If nothing's left, fall back to showPicker
+    /// so the kid gets cross-library suggestions.
+    func startAutoAdvance() {
+        cancelAutoAdvance()
+        guard let targetIndex = nextUnwatchedChannelIndex(after: channelIndex) else {
+            showPicker()
+            return
+        }
+        player.pause()
+        let target = channelVideos[targetIndex]
+        autoAdvanceTargetIndex = targetIndex
+        autoAdvanceNextTitle = target.title
+        autoAdvanceSecondsLeft = 5
+        autoAdvanceActive = true
+        autoAdvanceTask = Task { @MainActor [weak self] in
+            while let self, self.autoAdvanceSecondsLeft > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                if self.autoAdvanceSecondsLeft > 0 {
+                    self.autoAdvanceSecondsLeft -= 1
+                }
+            }
+            guard let self, !Task.isCancelled, self.autoAdvanceActive else { return }
+            self.fireAutoAdvance()
+        }
+    }
+
+    /// The kid hit the clickpad — skip the remaining countdown and
+    /// play the queued video immediately.
+    func skipToAutoAdvanceNow() {
+        guard autoAdvanceActive else { return }
+        fireAutoAdvance()
+    }
+
+    /// Kill the countdown and drop the queued target. Used on Menu
+    /// press, when the picker opens for any other reason, on new-video
+    /// entry, and on profile switch.
+    func cancelAutoAdvance() {
+        autoAdvanceTask?.cancel()
+        autoAdvanceTask = nil
+        autoAdvanceActive = false
+        autoAdvanceSecondsLeft = 0
+        autoAdvanceTargetIndex = nil
+        autoAdvanceNextTitle = ""
+    }
+
+    private func fireAutoAdvance() {
+        guard let idx = autoAdvanceTargetIndex else {
+            cancelAutoAdvance()
+            return
+        }
+        cancelAutoAdvance()
+        startChannel(at: idx)
+    }
+
+    private func nextUnwatchedChannelIndex(after start: Int) -> Int? {
+        let next = start + 1
+        guard next < channelVideos.count else { return nil }
+        for i in next..<channelVideos.count {
+            if !WatchedVideoStore.isWatched(channelVideos[i].youtubeVideoId) {
+                return i
+            }
+        }
+        return nil
     }
 
     // MARK: Picker
