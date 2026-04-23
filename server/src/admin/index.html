@@ -50,21 +50,96 @@
   .lookup-row label { flex: 1; }
   .edit-row td { background: color-mix(in srgb, var(--bg), var(--fg) 4%); padding: 16px 12px; }
   .edit-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+  /* Dashboard */
+  .dash-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+  .dash-head h2 { margin: 0; }
+  .dash-head .dim { color: var(--muted); font-size: 14px; }
+  .dash-head select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+  .stat { padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--bg), var(--fg) 3%); }
+  .stat .label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .stat .value { font-size: 34px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 6px; letter-spacing: -0.5px; }
+  .stat .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .stat.accent { background: linear-gradient(135deg, #1e4fa9, #3b7bd1); color: #fff; border-color: transparent; }
+  .stat.accent .label, .stat.accent .sub { color: rgba(255,255,255,0.7); }
+  .stat.warm { background: linear-gradient(135deg, #ff9a2b, #ff6b35); color: #fff; border-color: transparent; }
+  .stat.warm .label, .stat.warm .sub { color: rgba(255,255,255,0.75); }
+
+  .chart-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 28px; }
+  .chart-card { padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--bg), var(--fg) 3%); }
+  .chart-card h3 { margin: 0 0 14px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .chart-card canvas { width: 100% !important; height: 180px !important; }
+
+  .list-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+  .rank-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .rank-row:last-child { border-bottom: 0; }
+  .rank-row .title { flex: 1; font-size: 14px; font-weight: 500; }
+  .rank-row .value { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .rank-row .bar { flex: 0 0 80px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .rank-row .bar .fill { height: 100%; background: var(--accent); }
+
+  .insights { background: color-mix(in srgb, var(--bg), var(--fg) 3%); border: 1px solid var(--border); border-radius: 14px; padding: 18px 22px; }
+  .insights h3 { margin: 0 0 12px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .insights ul { margin: 0; padding: 0; list-style: none; }
+  .insights li { padding: 6px 0 6px 18px; position: relative; font-size: 14px; line-height: 1.55; }
+  .insights li::before { content: "•"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <header>
   <h1>QuietPlay Admin</h1>
   <nav>
-    <button id="tab-channels" class="active">Channels</button>
+    <button id="tab-dashboard" class="active">Dashboard</button>
+    <button id="tab-channels">Channels</button>
     <button id="tab-profiles">Profiles</button>
   </nav>
 </header>
 <main>
-  <section id="section-channels" class="active">
+  <section id="section-dashboard" class="active">
+    <div class="dash-head">
+      <h2 id="dash-title">Dashboard</h2>
+      <span class="dim">· last 7 days</span>
+      <span style="flex:1"></span>
+      <select id="dash-profile"></select>
+    </div>
+
+    <div class="stat-grid" id="dash-stats"></div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Daily watch time</h3>
+        <canvas id="chart-daily"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Time of day</h3>
+        <canvas id="chart-hourly"></canvas>
+      </div>
+    </div>
+
+    <div class="list-grid">
+      <div class="chart-card">
+        <h3>Top channels</h3>
+        <div id="dash-channels"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Categories</h3>
+        <div id="dash-categories"></div>
+      </div>
+    </div>
+
+    <div class="insights" id="dash-insights">
+      <h3>Insights</h3>
+      <ul><li class="empty">Loading…</li></ul>
+    </div>
+  </section>
+
+  <section id="section-channels">
     <h2>Channels</h2>
     <table id="channels-table">
-      <thead><tr><th>Title</th><th>YouTube ID</th><th>Sort</th><th>Active</th><th></th></tr></thead>
+      <thead><tr><th>Title</th><th>YouTube ID</th><th>Category</th><th>Sort</th><th>Rec</th><th>Active</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
 
@@ -85,7 +160,19 @@
           <option value="oldest">Oldest first (serial / start from #1)</option>
         </select>
       </label>
-      <div></div>
+      <label>Category
+        <select name="category">
+          <option value="">— auto from title —</option>
+          <option value="Trains">Trains</option>
+          <option value="LEGO">LEGO</option>
+          <option value="Cars">Cars &amp; Motors</option>
+          <option value="Restoration">Restoration</option>
+          <option value="Engineering">Engineering</option>
+          <option value="History">History</option>
+          <option value="Kids">Kids</option>
+          <option value="Other">Other</option>
+        </select>
+      </label>
       <div class="full">
         <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">Add to profiles (optional)</div>
         <div class="channel-pills" id="channel-form-profiles"></div>
@@ -138,6 +225,7 @@ const api = {
 };
 
 const tabs = {
+  dashboard: { btn: document.getElementById('tab-dashboard'), section: document.getElementById('section-dashboard') },
   channels: { btn: document.getElementById('tab-channels'), section: document.getElementById('section-channels') },
   profiles: { btn: document.getElementById('tab-profiles'), section: document.getElementById('section-profiles') },
 };
@@ -147,6 +235,7 @@ function showTab(name) {
     t.section.classList.toggle('active', k === name);
   }
 }
+tabs.dashboard.btn.addEventListener('click', () => { showTab('dashboard'); loadDashboard(); });
 tabs.channels.btn.addEventListener('click', () => showTab('channels'));
 tabs.profiles.btn.addEventListener('click', () => { showTab('profiles'); renderProfileFormChannels(); });
 
@@ -160,22 +249,27 @@ async function loadChannels() {
   const tbody = document.querySelector('#channels-table tbody');
   tbody.innerHTML = '';
   if (channels.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">No channels yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No channels yet.</td></tr>';
     renderChannelFormProfiles();
     return;
   }
+  const CATEGORIES = ['Trains', 'LEGO', 'Cars', 'Restoration', 'Engineering', 'History', 'Kids', 'Other'];
   for (const c of channels) {
     const sort = c.default_video_sort || 'newest';
+    const cat = c.category || 'Other';
+    const catOpts = CATEGORIES.map(x => `<option value="${x}" ${cat === x ? 'selected' : ''}>${x}</option>`).join('');
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${esc(c.title)}</td>
       <td><code>${esc(c.youtube_channel_id)}</code></td>
+      <td><select data-action="category" data-id="${c.id}">${catOpts}</select></td>
       <td>
         <select data-action="sort" data-id="${c.id}">
           <option value="newest" ${sort === 'newest' ? 'selected' : ''}>Newest first</option>
           <option value="oldest" ${sort === 'oldest' ? 'selected' : ''}>Oldest first</option>
         </select>
       </td>
+      <td><input type="checkbox" data-action="recommend" data-id="${c.id}" ${c.is_recommended ? 'checked' : ''} title="Show in Recommended row" /></td>
       <td>${c.is_active ? 'yes' : 'no'}</td>
       <td><button class="link" data-action="active" data-id="${c.id}" data-active="${c.is_active}">${c.is_active ? 'Deactivate' : 'Activate'}</button></td>
     `;
@@ -194,6 +288,16 @@ async function loadChannels() {
   tbody.querySelectorAll('select[data-action=sort]').forEach(sel => {
     sel.addEventListener('change', async () => {
       await api.patch(`/admin/api/channels/${sel.dataset.id}`, { default_video_sort: sel.value });
+    });
+  });
+  tbody.querySelectorAll('select[data-action=category]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      await api.patch(`/admin/api/channels/${sel.dataset.id}`, { category: sel.value });
+    });
+  });
+  tbody.querySelectorAll('input[data-action=recommend]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      await api.patch(`/admin/api/channels/${cb.dataset.id}`, { is_recommended: cb.checked });
     });
   });
   renderChannelFormProfiles();
@@ -365,6 +469,7 @@ document.getElementById('channel-form').addEventListener('submit', async (e) => 
       youtube_channel_id: f.youtube_channel_id.value.trim(),
       thumbnail_url: f.thumbnail_url.value.trim() || null,
       default_video_sort: f.default_video_sort.value,
+      category: f.category.value || null,
     });
     for (const pid of selectedProfiles) {
       const profile = profiles.find(p => p.id === pid);
@@ -401,7 +506,162 @@ document.getElementById('profile-form').addEventListener('submit', async (e) => 
   await loadChannels();
   await loadProfiles();
   renderProfileFormChannels();
+  populateDashProfileSelect();
+  loadDashboard();
 })();
+
+// ─────────────────────────  Dashboard  ─────────────────────────
+
+let dashCharts = { daily: null, hourly: null };
+let dashSelectedProfile = null;
+
+function populateDashProfileSelect() {
+  const sel = document.getElementById('dash-profile');
+  sel.innerHTML = profiles.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  if (!dashSelectedProfile && profiles[0]) dashSelectedProfile = profiles[0].id;
+  sel.value = dashSelectedProfile || '';
+  sel.addEventListener('change', () => {
+    dashSelectedProfile = sel.value;
+    loadDashboard();
+  });
+}
+
+function fmtDuration(seconds) {
+  if (!seconds || seconds < 60) return `${seconds || 0}s`;
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r === 0 ? `${h}h` : `${h}h ${r}m`;
+}
+
+async function loadDashboard() {
+  if (!dashSelectedProfile) return;
+  const container = document.getElementById('dash-stats');
+  const insights = document.getElementById('dash-insights').querySelector('ul');
+  const channelsList = document.getElementById('dash-channels');
+  const catsList = document.getElementById('dash-categories');
+  container.innerHTML = '<div class="stat"><div class="label">Loading…</div></div>';
+  insights.innerHTML = '<li class="empty">Loading…</li>';
+
+  let data;
+  try {
+    data = await api.get(`/admin/api/dashboard/${dashSelectedProfile}`);
+  } catch (e) {
+    container.innerHTML = `<div class="stat"><div class="label">Error</div><div class="sub">${esc(e.message || e)}</div></div>`;
+    return;
+  }
+
+  document.getElementById('dash-title').textContent = `${data.profile.name}'s week`;
+
+  // Hero stats
+  const w = data.week;
+  const totalLabel = fmtDuration(w.total_seconds);
+  container.innerHTML = `
+    <div class="stat accent">
+      <div class="label">Watch time</div>
+      <div class="value">${totalLabel}</div>
+      <div class="sub">${w.video_count} video${w.video_count === 1 ? '' : 's'} · ${w.channel_count} channel${w.channel_count === 1 ? '' : 's'}</div>
+    </div>
+    <div class="stat">
+      <div class="label">Streak</div>
+      <div class="value">${w.streak_days}${w.streak_days >= 3 ? ' 🔥' : ''}</div>
+      <div class="sub">day${w.streak_days === 1 ? '' : 's'} in a row</div>
+    </div>
+    <div class="stat">
+      <div class="label">Favorites added</div>
+      <div class="value">${w.favorite_count}</div>
+      <div class="sub">starred this week</div>
+    </div>
+    <div class="stat warm">
+      <div class="label">New to Henry</div>
+      <div class="value">${w.new_channel_count}</div>
+      <div class="sub">channel${w.new_channel_count === 1 ? '' : 's'} watched for the first time</div>
+    </div>
+  `;
+
+  // Daily bar chart
+  const dailyLabels = data.daily.map(d => {
+    const day = new Date(d.day + 'T00:00:00Z');
+    return day.toLocaleDateString(undefined, { weekday: 'short' });
+  });
+  const dailyValues = data.daily.map(d => Math.round(d.seconds / 60));
+  drawBar('chart-daily', 'daily', dailyLabels, dailyValues, '#3b7bd1');
+
+  // Time of day
+  const hourlyLabels = Array.from({ length: 24 }, (_, i) => (i === 0 ? '12a' : i < 12 ? `${i}a` : i === 12 ? '12p' : `${i - 12}p`));
+  const hourlyValues = data.hourly.map(s => Math.round(s / 60));
+  drawBar('chart-hourly', 'hourly', hourlyLabels, hourlyValues, '#4fbac9');
+
+  // Top channels
+  const maxChannelSecs = Math.max(...data.top_channels.map(c => c.seconds), 1);
+  channelsList.innerHTML = data.top_channels.length === 0
+    ? '<div class="empty" style="padding:8px 0;">Nothing watched yet this week.</div>'
+    : data.top_channels.map(c => `
+        <div class="rank-row">
+          <div class="title">${esc(c.title)}</div>
+          <div class="bar"><div class="fill" style="width:${(c.seconds / maxChannelSecs) * 100}%"></div></div>
+          <div class="value">${fmtDuration(c.seconds)}</div>
+        </div>
+      `).join('');
+
+  // Categories
+  const totalCatSecs = data.top_categories.reduce((a, b) => a + b.seconds, 0) || 1;
+  catsList.innerHTML = data.top_categories.length === 0
+    ? '<div class="empty" style="padding:8px 0;">—</div>'
+    : data.top_categories.map(c => `
+        <div class="rank-row">
+          <div class="title">${esc(c.category)}</div>
+          <div class="bar"><div class="fill" style="width:${(c.seconds / totalCatSecs) * 100}%"></div></div>
+          <div class="value">${Math.round((c.seconds / totalCatSecs) * 100)}%</div>
+        </div>
+      `).join('');
+
+  // Insights
+  insights.innerHTML = data.insights.length === 0
+    ? '<li class="empty">No insights yet — check back after some watching.</li>'
+    : data.insights.map(s => `<li>${esc(s)}</li>`).join('');
+}
+
+function drawBar(canvasId, key, labels, values, color) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  if (dashCharts[key]) dashCharts[key].destroy();
+  dashCharts[key] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: color,
+        borderRadius: 4,
+        maxBarThickness: 28,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y}m` } },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: getComputedStyle(document.body).getPropertyValue('--muted').trim(), font: { size: 11 } },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: 'rgba(127,127,127,0.15)' },
+          ticks: {
+            color: getComputedStyle(document.body).getPropertyValue('--muted').trim(),
+            font: { size: 11 },
+            callback: (v) => `${v}m`,
+          },
+        },
+      },
+    },
+  });
+}
 </script>
 </body>
 </html>

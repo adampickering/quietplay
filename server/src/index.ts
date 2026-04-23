@@ -4,6 +4,8 @@ import { resolverRoutes } from './routes/resolver.js';
 import { clientRoutes } from './routes/client.js';
 import { adminRoutes } from './routes/admin.js';
 import { healthRoutes } from './routes/health.js';
+import { eventRoutes } from './routes/events.js';
+import { dashboardRoutes } from './routes/dashboard.js';
 import { logger } from './logger.js';
 
 async function main() {
@@ -12,7 +14,9 @@ async function main() {
   await app.register(healthRoutes);
   await app.register(resolverRoutes());
   await app.register(clientRoutes);
+  await app.register(eventRoutes);
   await app.register(adminRoutes, { prefix: '/admin' });
+  await app.register(dashboardRoutes, { prefix: '/admin' });
 
   const port = Number(process.env.PORT ?? 8787);
   await app.listen({ port, host: '0.0.0.0' });

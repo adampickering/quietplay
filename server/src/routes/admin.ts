@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { request } from 'undici';
 import { pool } from '../db.js';
+import { categorize } from '../categorize.js';
 import { ingestChannel } from '../ingest-lib.js';
 import { logger } from '../logger.js';
 
@@ -96,6 +97,8 @@ interface ChannelRow {
   thumbnail_url: string | null;
   is_active: boolean;
   default_video_sort: 'newest' | 'oldest';
+  category: string | null;
+  is_recommended: boolean;
   created_at: string;
 }
 
@@ -170,19 +173,23 @@ export async function adminRoutes(app: FastifyInstance) {
       thumbnail_url?: string | null;
       is_active?: boolean;
       default_video_sort?: 'newest' | 'oldest';
+      category?: string | null;
     };
   }>('/api/channels', async (req, reply) => {
-    const { youtube_channel_id, title, thumbnail_url, is_active, default_video_sort } = req.body;
+    const { youtube_channel_id, title, thumbnail_url, is_active, default_video_sort, category } = req.body;
     if (!youtube_channel_id?.trim() || !title?.trim()) {
       return reply.code(400).send({ error: 'youtube_channel_id and title are required' });
     }
     if (default_video_sort && !['newest', 'oldest'].includes(default_video_sort)) {
       return reply.code(400).send({ error: 'default_video_sort must be newest or oldest' });
     }
+    // Auto-categorize from the title when the admin doesn't set one.
+    // Parent can override later via PATCH.
+    const resolvedCategory = (category ?? categorize(title)).trim();
     try {
       const { rows } = await pool.query<ChannelRow>(
-        `insert into channels (youtube_channel_id, title, thumbnail_url, is_active, default_video_sort)
-         values ($1, $2, $3, coalesce($4, true), coalesce($5, 'newest'))
+        `insert into channels (youtube_channel_id, title, thumbnail_url, is_active, default_video_sort, category)
+         values ($1, $2, $3, coalesce($4, true), coalesce($5, 'newest'), $6)
          returning *`,
         [
           youtube_channel_id.trim(),
@@ -190,6 +197,7 @@ export async function adminRoutes(app: FastifyInstance) {
           thumbnail_url ?? null,
           is_active ?? null,
           default_video_sort ?? null,
+          resolvedCategory,
         ],
       );
       const created = rows[0];
@@ -219,10 +227,12 @@ export async function adminRoutes(app: FastifyInstance) {
       thumbnail_url?: string | null;
       is_active?: boolean;
       default_video_sort?: 'newest' | 'oldest';
+      category?: string | null;
+      is_recommended?: boolean;
     };
   }>('/api/channels/:id', async (req, reply) => {
     const { id } = req.params;
-    const { title, thumbnail_url, is_active, default_video_sort } = req.body;
+    const { title, thumbnail_url, is_active, default_video_sort, category, is_recommended } = req.body;
     if (default_video_sort && !['newest', 'oldest'].includes(default_video_sort)) {
       return reply.code(400).send({ error: 'default_video_sort must be newest or oldest' });
     }
@@ -231,7 +241,9 @@ export async function adminRoutes(app: FastifyInstance) {
          set title = coalesce($2, title),
              thumbnail_url = coalesce($3, thumbnail_url),
              is_active = coalesce($4, is_active),
-             default_video_sort = coalesce($5, default_video_sort)
+             default_video_sort = coalesce($5, default_video_sort),
+             category = coalesce($6, category),
+             is_recommended = coalesce($7, is_recommended)
        where id = $1
        returning *`,
       [
@@ -240,6 +252,8 @@ export async function adminRoutes(app: FastifyInstance) {
         thumbnail_url ?? null,
         is_active ?? null,
         default_video_sort ?? null,
+        category ?? null,
+        is_recommended ?? null,
       ],
     );
     if (rows.length === 0) return reply.code(404).send({ error: 'not found' });

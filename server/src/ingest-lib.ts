@@ -6,16 +6,13 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { request } from 'undici';
 import { pool } from './db.js';
 
 const execFileP = promisify(execFile);
 
-const MAX_ENTRIES = 80;
+const MAX_ENTRIES = 150;
 const CONCURRENCY = 4;
-const SHORTS_CHECK_CONCURRENCY = 8;
 const FEED_TIMEOUT_MS = 30_000;
-const SHORTS_CHECK_TIMEOUT_MS = 4_000;
 
 export interface Channel {
   id: string;
@@ -36,19 +33,13 @@ export interface EnrichedEntry extends FeedEntry {
   is_short: boolean;
 }
 
-export async function isShort(videoID: string): Promise<boolean> {
-  try {
-    const res = await request(`https://www.youtube.com/shorts/${videoID}`, {
-      headersTimeout: SHORTS_CHECK_TIMEOUT_MS,
-      bodyTimeout: SHORTS_CHECK_TIMEOUT_MS,
-      maxRedirections: 0,
-      headers: { 'user-agent': 'Mozilla/5.0 QuietPlayBot' },
-    });
-    await res.body.dump();
-    return res.statusCode === 200;
-  } catch {
-    return false;
-  }
+/// YouTube defines Shorts as <=60s + vertical, but duration alone
+/// catches ~95% of them and costs nothing — the old HEAD-to-/shorts/
+/// trick stopped working (YouTube started returning 200 for everything)
+/// so we were flagging zero shorts across 88 channels after the last
+/// re-ingest. Treat anything <=60s as a short.
+export function isShortByDuration(durationSeconds: number | null): boolean {
+  return durationSeconds !== null && durationSeconds > 0 && durationSeconds <= 60;
 }
 
 /**
@@ -69,42 +60,58 @@ export async function fetchChannelVideos(youtubeChannelId: string): Promise<Feed
       '--flat-playlist',
       '--playlist-end', String(MAX_ENTRIES),
       '--no-warnings',
-      '--print', '%(id)s\t%(title)s\t%(timestamp)s\t%(thumbnail)s\t%(duration)s',
+      '--print',
+      '%(id)s\t%(title)s\t%(timestamp)s\t%(upload_date)s\t%(thumbnail)s\t%(duration)s',
       url,
     ],
     { timeout: FEED_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
   );
 
-  const now = Date.now();
   const lines = stdout.split('\n').filter((l) => l.length > 0);
   const entries: FeedEntry[] = [];
+  const now = Date.now();
   for (let i = 0; i < lines.length; i++) {
-    const [id, title, tsStr, thumb, durStr] = lines[i].split('\t');
+    const [id, title, tsStr, uploadStr, thumb, durStr] = lines[i].split('\t');
     if (!id || !/^[A-Za-z0-9_-]{11}$/.test(id)) continue;
-    const tsNum = tsStr && tsStr !== 'NA' ? Number(tsStr) : NaN;
-    const publishedMs = Number.isFinite(tsNum) ? tsNum * 1000 : now - i * 86_400_000;
+
+    // Prefer the unix timestamp; fall back to YouTube's upload_date
+    // (YYYYMMDD); if BOTH are NA (common for some newer channels in
+    // flat-playlist mode) fall back to a position-based placeholder
+    // so rows still get inserted. The nightly date-fix script runs a
+    // full yt-dlp extract per video and corrects the real dates later.
+    const published = parseDate(tsStr, uploadStr)
+      ?? new Date(now - i * 86_400_000).toISOString();
+
     const durNum = durStr && durStr !== 'NA' ? Math.round(Number(durStr)) : NaN;
     entries.push({
       youtube_video_id: id,
       title: title ?? '',
       thumbnail_url: thumb && thumb !== 'NA' ? thumb : `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-      published_at: new Date(publishedMs).toISOString(),
+      published_at: published,
       duration_seconds: Number.isFinite(durNum) && durNum > 0 ? durNum : null,
     });
   }
   return entries;
 }
 
-async function getExistingShortsFlags(
-  channelId: string,
-  videoIds: string[],
-): Promise<Map<string, boolean>> {
-  if (videoIds.length === 0) return new Map();
-  const { rows } = await pool.query<{ youtube_video_id: string; is_short: boolean }>(
-    'select youtube_video_id, is_short from videos where channel_id = $1 and youtube_video_id = any($2::text[])',
-    [channelId, videoIds],
-  );
-  return new Map(rows.map((r) => [r.youtube_video_id, r.is_short]));
+/** timestamp (unix seconds) wins; upload_date (YYYYMMDD) is the backup
+ *  because yt-dlp's YouTube extractor sometimes populates one but not
+ *  the other depending on how the channel listing was cached. */
+function parseDate(tsStr: string | undefined, uploadStr: string | undefined): string | null {
+  if (tsStr && tsStr !== 'NA') {
+    const n = Number(tsStr);
+    if (Number.isFinite(n) && n > 0) {
+      return new Date(n * 1000).toISOString();
+    }
+  }
+  if (uploadStr && uploadStr !== 'NA' && /^\d{8}$/.test(uploadStr)) {
+    const y = Number(uploadStr.slice(0, 4));
+    const m = Number(uploadStr.slice(4, 6));
+    const d = Number(uploadStr.slice(6, 8));
+    const date = new Date(Date.UTC(y, m - 1, d));
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return null;
 }
 
 export async function upsertVideos(
@@ -137,7 +144,10 @@ export async function upsertVideos(
     values ${tuples.join(', ')}
     on conflict (youtube_video_id) do update set
       is_short = excluded.is_short,
-      duration_seconds = coalesce(excluded.duration_seconds, videos.duration_seconds)
+      duration_seconds = coalesce(excluded.duration_seconds, videos.duration_seconds),
+      published_at = excluded.published_at,
+      title = excluded.title,
+      thumbnail_url = excluded.thumbnail_url
   `;
   const result = await pool.query(sql, values);
   const shorts = entries.filter((e) => e.is_short).length;
@@ -167,20 +177,10 @@ export async function processChannel(
 ): Promise<{ added: number; shorts: number; error?: string }> {
   try {
     const entries = await fetchChannelVideos(channel.youtube_channel_id);
-    const existing = await getExistingShortsFlags(
-      channel.id,
-      entries.map((e) => e.youtube_video_id),
-    );
-    // Only pay the is_short HEAD request for videos we haven't seen
-    // before. With 80 entries × N channels per hour, reusing stored
-    // flags keeps us well under YouTube's rate limits.
-    const enriched = await runPool(entries, SHORTS_CHECK_CONCURRENCY, async (e) => {
-      const cached = existing.get(e.youtube_video_id);
-      return {
-        ...e,
-        is_short: cached ?? (await isShort(e.youtube_video_id)),
-      };
-    });
+    const enriched: EnrichedEntry[] = entries.map((e) => ({
+      ...e,
+      is_short: isShortByDuration(e.duration_seconds),
+    }));
     const { added, shorts } = await upsertVideos(channel.id, enriched);
     return { added, shorts };
   } catch (err) {

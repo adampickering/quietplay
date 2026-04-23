@@ -58,8 +58,10 @@ export async function clientRoutes(app: FastifyInstance) {
       id: string;
       title: string;
       thumbnail_url: string | null;
+      category: string | null;
+      is_recommended: boolean;
     }>(
-      `select id, title, thumbnail_url
+      `select id, title, thumbnail_url, category, is_recommended
        from channels
        where id = any($1::uuid[]) and is_active = true
        order by title asc`,
