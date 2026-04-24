@@ -21,10 +21,10 @@ export async function eventRoutes(app: FastifyInstance) {
   app.post<{ Body: EventPayload }>('/events/watch', async (req, reply) => {
     const { profile_id, events } = req.body ?? ({} as EventPayload);
     if (!profile_id || !Array.isArray(events) || events.length === 0) {
-      return reply.code(400).send({ error: 'profile_id + events required' });
+      return reply.code(400).send({ error: 'Missing profile or events.' });
     }
     if (events.length > 500) {
-      return reply.code(413).send({ error: 'too many events in one batch' });
+      return reply.code(413).send({ error: 'Too many events in one batch — chunk it up.' });
     }
 
     // Validate profile exists (cheap sanity check so junk clients don't
@@ -34,7 +34,7 @@ export async function eventRoutes(app: FastifyInstance) {
       [profile_id],
     );
     if (profiles.length === 0) {
-      return reply.code(404).send({ error: 'profile not found' });
+      return reply.code(404).send({ error: "Couldn't find that profile." });
     }
 
     // Resolve youtube_video_id → videos.id in one go.
@@ -77,7 +77,7 @@ export async function eventRoutes(app: FastifyInstance) {
       await pool.query(sql, values);
     } catch (err) {
       logger.warn({ err }, 'watch_events insert failed');
-      return reply.code(500).send({ error: 'db write failed' });
+      return reply.code(500).send({ error: 'Database refused the writeup. Try again in a moment.' });
     }
     return { accepted: kept, ignored: events.length - kept };
   });

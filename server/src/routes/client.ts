@@ -35,9 +35,9 @@ export async function clientRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { profile?: string } }>('/playable', async (req, reply) => {
     const profileId = req.query.profile;
-    if (!profileId) return reply.code(400).send({ error: 'profile query param required' });
+    if (!profileId) return reply.code(400).send({ error: 'Missing profile.' });
     const profile = await loadProfile(profileId);
-    if (!profile) return reply.code(404).send({ error: 'profile not found' });
+    if (!profile) return reply.code(404).send({ error: "Couldn't find that profile." });
 
     const { rows } = await pool.query<PlayableRow>(
       `select youtube_video_id, title, thumbnail_url, published_at, channel_id, channel_title
@@ -50,9 +50,9 @@ export async function clientRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { profile?: string } }>('/library', async (req, reply) => {
     const profileId = req.query.profile;
-    if (!profileId) return reply.code(400).send({ error: 'profile query param required' });
+    if (!profileId) return reply.code(400).send({ error: 'Missing profile.' });
     const profile = await loadProfile(profileId);
-    if (!profile) return reply.code(404).send({ error: 'profile not found' });
+    if (!profile) return reply.code(404).send({ error: "Couldn't find that profile." });
 
     const channelsResult = await pool.query<{
       id: string;

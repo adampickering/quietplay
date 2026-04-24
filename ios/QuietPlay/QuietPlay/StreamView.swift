@@ -1,6 +1,19 @@
 import AVFoundation
 import SwiftUI
 
+/// Format a playback timestamp as `m:ss` (or `h:mm:ss` past an hour).
+/// Shared by the pause card and the in-video progress strip so they
+/// always agree.
+fileprivate func formatPlaybackTime(_ seconds: Double) -> String {
+    guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+    let total = Int(seconds)
+    let h = total / 3600
+    let m = (total % 3600) / 60
+    let s = total % 60
+    if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+    return String(format: "%d:%02d", m, s)
+}
+
 struct StreamView: View {
     @Bindable var app: AppState
     let onExitToLibrary: () -> Void
@@ -70,17 +83,17 @@ struct StreamView: View {
 
             switch app.mode {
             case .empty:
-                MessageView(text: "Ask Dad to add a channel", onExit: onExitToLibrary)
+                MessageView(text: "Nothing in the depot. Ask Dad to add a channel.", onExit: onExitToLibrary)
             case .fallback:
                 MessageView(
-                    text: "Nothing to play right now",
+                    text: "Tried a few — none would play. Pick a different one?",
                     actionTitle: "Try again",
                     action: { app.retryCurrentVideo() },
                     onExit: onExitToLibrary
                 )
             case .degraded:
                 MessageView(
-                    text: "Can't reach QuietPlay right now",
+                    text: "Server's having a lie down. Give it a moment?",
                     actionTitle: "Try again",
                     action: { app.retryCurrentVideo() },
                     onExit: onExitToLibrary
@@ -315,9 +328,9 @@ private struct ProgressStrip: View {
             .shadow(color: .black.opacity(0.55), radius: 8, y: 2)
 
             HStack {
-                Text(Self.format(elapsed))
+                Text(formatPlaybackTime(elapsed))
                 Spacer()
-                Text(Self.format(duration))
+                Text(formatPlaybackTime(duration))
             }
             .font(.system(size: 14, weight: .medium, design: .monospaced))
             .foregroundStyle(.white.opacity(0.82))
@@ -328,18 +341,6 @@ private struct ProgressStrip: View {
     private var fraction: Double {
         guard duration > 0 else { return 0 }
         return max(0, min(1, elapsed / duration))
-    }
-
-    private static func format(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
-        }
-        return String(format: "%d:%02d", m, s)
     }
 }
 
@@ -372,6 +373,9 @@ private struct RetryPill: View {
     let title: String
     let action: () -> Void
     @FocusState private var focused: Bool
+    /// 600ms disable after a press so a panicky kid mashing Select
+    /// during a degraded state can't fire three retries in a row.
+    @State private var cooldown: Bool = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -391,11 +395,20 @@ private struct RetryPill: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(.white.opacity(focused ? 0.32 : 0.1), lineWidth: 1)
         )
+        .opacity(cooldown ? 0.5 : 1.0)
         .contentShape(Rectangle())
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        .onTapGesture(perform: action)
+        .onTapGesture {
+            guard !cooldown else { return }
+            action()
+            cooldown = true
+            Task {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                await MainActor.run { cooldown = false }
+            }
+        }
         .animation(Motion.focusSpring, value: focused)
     }
 }
@@ -532,7 +545,7 @@ private struct UpNextChip: View {
                     .trim(from: 0, to: CGFloat(secondsLeft) / 5)
                     .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .animation(.linear(duration: 0.9), value: secondsLeft)
+                    .animation(.linear(duration: 1.0), value: secondsLeft)
                 Text("\(secondsLeft)")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
@@ -680,7 +693,7 @@ private struct PausedCard: View {
                         .font(.system(size: 20, weight: .regular))
                         .foregroundStyle(.white.opacity(0.72))
                 }
-                Text("\(Self.format(elapsed)) / \(Self.format(duration))")
+                Text("\(formatPlaybackTime(elapsed)) / \(formatPlaybackTime(duration))")
                     .font(.system(size: 18, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.8))
                     .padding(.top, 4)
@@ -688,15 +701,5 @@ private struct PausedCard: View {
             .shadow(color: .black.opacity(0.6), radius: 10, y: 2)
             .padding(.horizontal, 80)
         }
-    }
-
-    private static func format(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
     }
 }

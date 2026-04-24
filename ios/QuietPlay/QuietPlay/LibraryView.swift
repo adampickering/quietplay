@@ -1190,10 +1190,10 @@ private struct LibraryErrorOverlay: View {
                 Image(systemName: "antenna.radiowaves.left.and.right.slash")
                     .font(.system(size: 48))
                     .foregroundStyle(.white.opacity(0.55))
-                Text("Couldn't load your library")
+                Text("Signal lost")
                     .font(.system(size: Theme.FontSize.xxxl, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("Check that QuietPlay is running, then try again.")
+                Text("Check that QuietPlay is running at home, then try again.")
                     .font(.system(size: Theme.FontSize.md))
                     .foregroundStyle(Theme.Palette.dimWhite55)
 

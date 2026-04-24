@@ -90,9 +90,9 @@
 </head>
 <body>
 <header>
-  <h1>QuietPlay Admin</h1>
+  <h1>QuietPlay · control room</h1>
   <nav>
-    <button id="tab-dashboard" class="active">Dashboard</button>
+    <button id="tab-dashboard" class="active">The week</button>
     <button id="tab-channels">Channels</button>
     <button id="tab-profiles">Profiles</button>
   </nav>
@@ -100,7 +100,7 @@
 <main>
   <section id="section-dashboard" class="active">
     <div class="dash-head">
-      <h2 id="dash-title">Dashboard</h2>
+      <h2 id="dash-title">The week</h2>
       <span class="dim">· last 7 days</span>
       <span style="flex:1"></span>
       <select id="dash-profile"></select>
@@ -110,40 +110,40 @@
 
     <div class="chart-grid">
       <div class="chart-card">
-        <h3>Daily watch time</h3>
+        <h3>Day by day</h3>
         <canvas id="chart-daily"></canvas>
       </div>
       <div class="chart-card">
-        <h3>Time of day</h3>
+        <h3>When he watches</h3>
         <canvas id="chart-hourly"></canvas>
       </div>
     </div>
 
     <div class="list-grid">
       <div class="chart-card">
-        <h3>Top channels</h3>
+        <h3>Most-watched channels</h3>
         <div id="dash-channels"></div>
       </div>
       <div class="chart-card">
-        <h3>Categories</h3>
+        <h3>What he's into</h3>
         <div id="dash-categories"></div>
       </div>
     </div>
 
     <div class="insights" id="dash-insights">
-      <h3>Insights</h3>
-      <ul><li class="empty">Loading…</li></ul>
+      <h3>Worth noticing</h3>
+      <ul><li class="empty">Putting the kettle on…</li></ul>
     </div>
   </section>
 
   <section id="section-channels">
     <h2>Channels</h2>
     <table id="channels-table">
-      <thead><tr><th>Title</th><th>YouTube ID</th><th>Category</th><th>Sort</th><th>Rec</th><th>Active</th><th></th></tr></thead>
+      <thead><tr><th>Title</th><th>YouTube ID</th><th>Category</th><th>Sort</th><th>Rec</th><th>On air</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
 
-    <h3>Add channel</h3>
+    <h3>Add a channel</h3>
     <form id="channel-form">
       <div class="full lookup-row">
         <label>Paste YouTube channel URL
@@ -183,12 +183,13 @@
 
   <section id="section-profiles">
     <h2>Profiles <span id="profile-count" class="empty"></span></h2>
+    <p class="empty" style="margin: -8px 0 16px; font-style: normal;">Three profiles is the house limit.</p>
     <table id="profiles-table">
       <thead><tr><th>#</th><th>Name</th><th>Channels</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
 
-    <h3>Add profile</h3>
+    <h3>Add a profile</h3>
     <form id="profile-form">
       <label>Name<input name="name" type="text" required /></label>
       <label>Position<select name="position"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select></label>
@@ -249,7 +250,7 @@ async function loadChannels() {
   const tbody = document.querySelector('#channels-table tbody');
   tbody.innerHTML = '';
   if (channels.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">No channels yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No channels on the roster yet.</td></tr>';
     renderChannelFormProfiles();
     return;
   }
@@ -309,7 +310,7 @@ async function loadProfiles() {
   const tbody = document.querySelector('#profiles-table tbody');
   tbody.innerHTML = '';
   if (profiles.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty">No profiles yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No profiles yet. Add one below.</td></tr>';
     renderChannelFormProfiles();
     return;
   }
@@ -331,7 +332,7 @@ async function loadProfiles() {
   }
   tbody.querySelectorAll('button[data-action=delete]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Delete this profile?')) return;
+      if (!confirm('Drop this profile?')) return;
       await api.del(`/admin/api/profiles/${btn.dataset.id}`);
       await loadProfiles();
     });
@@ -402,7 +403,7 @@ function renderProfileFormChannels() {
   container.innerHTML = '';
   const active = channels.filter(c => c.is_active);
   if (active.length === 0) {
-    container.innerHTML = '<span class="empty">Add active channels first.</span>';
+    container.innerHTML = '<span class="empty">Add an active channel first.</span>';
     return;
   }
   for (const c of active) {
@@ -417,7 +418,7 @@ function renderChannelFormProfiles() {
   const container = document.getElementById('channel-form-profiles');
   container.innerHTML = '';
   if (profiles.length === 0) {
-    container.innerHTML = '<span class="empty">No profiles yet. Create one in the Profiles tab.</span>';
+    container.innerHTML = '<span class="empty">No profiles yet — start one in the Profiles tab.</span>';
     return;
   }
   for (const p of profiles) {
@@ -437,7 +438,7 @@ document.getElementById('lookup-btn').addEventListener('click', async () => {
   errEl.textContent = '';
   infoEl.textContent = '';
   const url = form.lookup_url.value.trim();
-  if (!url) { errEl.textContent = 'paste a URL or channel ID first'; return; }
+  if (!url) { errEl.textContent = 'Paste a URL or channel ID first.'; return; }
   btn.disabled = true;
   const orig = btn.textContent;
   btn.textContent = 'Looking up…';
@@ -446,7 +447,7 @@ document.getElementById('lookup-btn').addEventListener('click', async () => {
     form.title.value = meta.title;
     form.youtube_channel_id.value = meta.youtube_channel_id;
     form.thumbnail_url.value = meta.thumbnail_url || '';
-    infoEl.textContent = 'Found. Review and click Add.';
+    infoEl.textContent = 'Found it. Review and click Add.';
   } catch (err) {
     errEl.textContent = err.message;
   } finally {
@@ -541,14 +542,14 @@ async function loadDashboard() {
   const insights = document.getElementById('dash-insights').querySelector('ul');
   const channelsList = document.getElementById('dash-channels');
   const catsList = document.getElementById('dash-categories');
-  container.innerHTML = '<div class="stat"><div class="label">Loading…</div></div>';
-  insights.innerHTML = '<li class="empty">Loading…</li>';
+  container.innerHTML = '<div class="stat"><div class="label">Putting the kettle on…</div></div>';
+  insights.innerHTML = '<li class="empty">Putting the kettle on…</li>';
 
   let data;
   try {
     data = await api.get(`/admin/api/dashboard/${dashSelectedProfile}`);
   } catch (e) {
-    container.innerHTML = `<div class="stat"><div class="label">Error</div><div class="sub">${esc(e.message || e)}</div></div>`;
+    container.innerHTML = `<div class="stat"><div class="label">Signal lost</div><div class="sub">${esc(e.message || e)}</div></div>`;
     return;
   }
 
@@ -557,26 +558,27 @@ async function loadDashboard() {
   // Hero stats
   const w = data.week;
   const totalLabel = fmtDuration(w.total_seconds);
+  const streakNote = w.streak_days >= 3 ? ' · on a roll' : '';
   container.innerHTML = `
     <div class="stat accent">
-      <div class="label">Watch time</div>
+      <div class="label">Time on the box</div>
       <div class="value">${totalLabel}</div>
       <div class="sub">${w.video_count} video${w.video_count === 1 ? '' : 's'} · ${w.channel_count} channel${w.channel_count === 1 ? '' : 's'}</div>
     </div>
     <div class="stat">
       <div class="label">Streak</div>
-      <div class="value">${w.streak_days}${w.streak_days >= 3 ? ' 🔥' : ''}</div>
-      <div class="sub">day${w.streak_days === 1 ? '' : 's'} in a row</div>
+      <div class="value">${w.streak_days}</div>
+      <div class="sub">day${w.streak_days === 1 ? '' : 's'} in a row${streakNote}</div>
     </div>
     <div class="stat">
-      <div class="label">Favorites added</div>
+      <div class="label">Starred this week</div>
       <div class="value">${w.favorite_count}</div>
-      <div class="sub">starred this week</div>
+      <div class="sub">favourite${w.favorite_count === 1 ? '' : 's'} added</div>
     </div>
     <div class="stat warm">
-      <div class="label">New to Henry</div>
+      <div class="label">First-timers</div>
       <div class="value">${w.new_channel_count}</div>
-      <div class="sub">channel${w.new_channel_count === 1 ? '' : 's'} watched for the first time</div>
+      <div class="sub">channel${w.new_channel_count === 1 ? '' : 's'} tried this week</div>
     </div>
   `;
 
@@ -596,7 +598,7 @@ async function loadDashboard() {
   // Top channels
   const maxChannelSecs = Math.max(...data.top_channels.map(c => c.seconds), 1);
   channelsList.innerHTML = data.top_channels.length === 0
-    ? '<div class="empty" style="padding:8px 0;">Nothing watched yet this week.</div>'
+    ? '<div class="empty" style="padding:8px 0;">Nothing on the clock this week.</div>'
     : data.top_channels.map(c => `
         <div class="rank-row">
           <div class="title">${esc(c.title)}</div>
@@ -608,7 +610,7 @@ async function loadDashboard() {
   // Categories
   const totalCatSecs = data.top_categories.reduce((a, b) => a + b.seconds, 0) || 1;
   catsList.innerHTML = data.top_categories.length === 0
-    ? '<div class="empty" style="padding:8px 0;">—</div>'
+    ? '<div class="empty" style="padding:8px 0;">No categories yet.</div>'
     : data.top_categories.map(c => `
         <div class="rank-row">
           <div class="title">${esc(c.category)}</div>
@@ -619,7 +621,7 @@ async function loadDashboard() {
 
   // Insights
   insights.innerHTML = data.insights.length === 0
-    ? '<li class="empty">No insights yet — check back after some watching.</li>'
+    ? '<li class="empty">Nothing worth noticing yet. Check back after some watching.</li>'
     : data.insights.map(s => `<li>${esc(s)}</li>`).join('');
 }
 

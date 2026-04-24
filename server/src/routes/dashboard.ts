@@ -201,32 +201,42 @@ export async function dashboardRoutes(app: FastifyInstance) {
     ]);
 
     if (profileRow.rows.length === 0) {
-      return reply.code(404).send({ error: 'profile not found' });
+      return reply.code(404).send({ error: "Couldn't find that profile." });
     }
 
     const totals = week.rows[0];
     const staleRow = staleChannels.rows[0];
     const recRow = recommendedPlays.rows[0];
 
-    // Human-readable insights — short, warm, not alarming. Derived
-    // from the aggregates above.
+    // Human-readable insights — short, dry, slightly British. Derived
+    // from the aggregates above. Lead with the one sentence Dad
+    // shouldn't have to read a chart to get.
     const insights: string[] = [];
+    const name = profileRow.rows[0]?.name ?? 'this profile';
+    const topCat = topCategories.rows[0]?.category;
     if (totals.total_seconds > 0) {
       const hrs = totals.total_seconds / 3600;
-      insights.push(`${hrs.toFixed(1)} hours of watching across ${totals.channel_count} channels this week.`);
+      const hoursText = hrs >= 1 ? `${hrs.toFixed(1)} hours` : `${Math.round(totals.total_seconds / 60)} minutes`;
+      const tail = topCat ? `, mostly ${topCat}` : '';
+      insights.push(`${name} watched ${hoursText} this week${tail}.`);
+    } else {
+      insights.push(`${name} hasn't watched anything this week. The depot's quiet.`);
     }
     if (recRow.plays > 0) {
-      insights.push(`Your Recommended picks earned ${recRow.plays} play${recRow.plays === 1 ? '' : 's'} — ${fmtMin(recRow.seconds)} of attention.`);
+      insights.push(`Your Recommended picks pulled ${recRow.plays} play${recRow.plays === 1 ? '' : 's'} — ${fmtMin(recRow.seconds)} of screen time.`);
     }
     if (streak.rows[0].streak >= 3) {
-      insights.push(`Current streak: ${streak.rows[0].streak} day${streak.rows[0].streak === 1 ? '' : 's'}.`);
+      insights.push(`On a ${streak.rows[0].streak}-day streak.`);
     }
     if (newChannels.rows[0].count > 0) {
-      insights.push(`${newChannels.rows[0].count} channel${newChannels.rows[0].count === 1 ? '' : 's'} got first-time attention this week.`);
+      const n = newChannels.rows[0].count;
+      insights.push(`Tried ${n} new channel${n === 1 ? '' : 's'} for the first time.`);
     }
     if (staleRow.count > 0) {
       const sample = staleRow.titles.slice(0, 3).join(', ');
-      insights.push(`${staleRow.count} subscribed channel${staleRow.count === 1 ? '' : 's'} haven't posted in 30+ days${staleRow.count > 3 ? ` (incl. ${sample})` : `: ${sample}`} — consider deactivating.`);
+      const lead = staleRow.count === 1 ? '1 channel has gone quiet' : `${staleRow.count} channels have gone quiet`;
+      const tail = staleRow.count > 3 ? ` (incl. ${sample})` : `: ${sample}`;
+      insights.push(`${lead}${tail}. Worth a look.`);
     }
 
     return {

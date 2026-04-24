@@ -104,10 +104,10 @@ struct EndOfLineTurtle: View {
 
 // MARK: - Mr. Blobby rare sighting
 
-/// 1-in-500 launches a pink-and-yellow-spotted dot tears across the
-/// bottom of the library for ~1.1s, then vanishes. No sound, no
-/// explanation. Henry tells a friend in ten years and no one believes
-/// him.
+/// 1-in-2000 launches a softly-tinted, low-saturation dot drifts
+/// across the bottom of the library for ~1.8s, then vanishes. Calm
+/// enough that it never reads as a rendering glitch. Henry tells a
+/// friend in ten years and no one believes him.
 struct BlobbySighting: View {
     @State private var offsetX: CGFloat = 1800
     @State private var shown: Bool = false
@@ -117,27 +117,29 @@ struct BlobbySighting: View {
             if shown {
                 ZStack {
                     Circle()
-                        .fill(Color(red: 1.0, green: 0.55, blue: 0.75))
-                        .frame(width: 38, height: 38)
+                        .fill(Color(red: 0.86, green: 0.70, blue: 0.78))
+                        .frame(width: 34, height: 34)
                     ForEach(0..<4, id: \.self) { i in
                         Circle()
-                            .fill(.yellow)
-                            .frame(width: 8, height: 8)
+                            .fill(Color(red: 0.90, green: 0.82, blue: 0.55))
+                            .frame(width: 7, height: 7)
                             .offset(x: [8, -9, 6, -4][i],
                                     y: [-7, 4, 8, -2][i])
                     }
                 }
+                .opacity(0.7)
                 .offset(x: offsetX, y: geo.size.height - 90)
                 .onAppear {
-                    withAnimation(.easeInOut(duration: 1.1)) {
+                    withAnimation(.easeInOut(duration: 1.8)) {
                         offsetX = -60
                     }
                 }
             }
         }
         .task {
-            // Roll once per mount. 1-in-500 keeps it truly rare.
-            guard Int.random(in: 1...500) == 1 else { return }
+            // Roll once per mount. 1-in-2000 keeps it properly rare —
+            // most Henrys will never see it.
+            guard Int.random(in: 1...2000) == 1 else { return }
             try? await Task.sleep(nanoseconds: 600_000_000)
             shown = true
         }
@@ -173,10 +175,12 @@ struct BreakModal: View {
             Color.black.opacity(0.82).ignoresSafeArea()
 
             VStack(spacing: 26) {
-                Text("🍵")
-                    .font(.system(size: 72))
+                Image(systemName: "cup.and.saucer.fill")
+                    .font(.system(size: 64, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .symbolRenderingMode(.hierarchical)
 
-                Text("Time for a break!")
+                Text("Time for a break.")
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(.white)
 
@@ -379,16 +383,25 @@ enum FiveMinuteWarningStore {
 
 enum BritishEmpty {
     static let noVideos: [String] = [
-        "No videos yet",
+        "No videos yet — engineering works in progress",
         "Signal failure at the next station",
-        "Engineering works are in progress",
         "We apologise for the delay",
+        "Awaiting clearance from control",
+        "All quiet on the line",
+        "Service suspended — try another platform",
+        "The depot's gone home for the day",
+        "Wagons due in shortly",
+        "No arrivals scheduled",
+        "Held at the home signal",
     ]
 
     static let noChannels: [String] = [
-        "No channels",
-        "The platform is empty",
-        "Ask Dad for a channel",
+        "Platform empty — ask Dad for a channel",
+        "No services on this line",
+        "Roster's bare. Ask Dad?",
+        "Awaiting timetable from control",
+        "Nothing scheduled. Ask Dad for a platform.",
+        "Depot still asleep. Try Dad.",
     ]
 
     /// Pick deterministically by day so the copy stays stable within

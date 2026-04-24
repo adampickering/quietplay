@@ -118,12 +118,13 @@ export async function adminRoutes(app: FastifyInstance) {
   // Channel URL → metadata lookup
   app.post<{ Body: { url: string } }>('/api/channels/lookup', async (req, reply) => {
     const { url } = req.body ?? ({} as { url: string });
-    if (!url?.trim()) return reply.code(400).send({ error: 'url required' });
+    if (!url?.trim()) return reply.code(400).send({ error: 'Paste a URL or channel ID first.' });
     try {
       const meta = await lookupChannel(url);
       return meta;
     } catch (err) {
-      return reply.code(400).send({ error: err instanceof Error ? err.message : 'lookup failed' });
+      const detail = err instanceof Error ? err.message : 'unknown';
+      return reply.code(400).send({ error: `Couldn't look that up — ${detail}.` });
     }
   });
 
@@ -147,10 +148,10 @@ export async function adminRoutes(app: FastifyInstance) {
   }>('/api/channels', async (req, reply) => {
     const { youtube_channel_id, title, thumbnail_url, is_active, default_video_sort, category } = req.body;
     if (!youtube_channel_id?.trim() || !title?.trim()) {
-      return reply.code(400).send({ error: 'youtube_channel_id and title are required' });
+      return reply.code(400).send({ error: 'Title and YouTube channel ID are both required.' });
     }
     if (default_video_sort && !['newest', 'oldest'].includes(default_video_sort)) {
-      return reply.code(400).send({ error: 'default_video_sort must be newest or oldest' });
+      return reply.code(400).send({ error: 'Sort order must be "newest" or "oldest".' });
     }
     // Auto-categorize from the title when the admin doesn't set one.
     // Parent can override later via PATCH.
@@ -183,7 +184,7 @@ export async function adminRoutes(app: FastifyInstance) {
       return created;
     } catch (err: any) {
       if (err?.code === '23505') {
-        return reply.code(409).send({ error: 'channel already exists' });
+        return reply.code(409).send({ error: "That channel's already on the roster." });
       }
       throw err;
     }
@@ -203,7 +204,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const { id } = req.params;
     const { title, thumbnail_url, is_active, default_video_sort, category, is_recommended } = req.body;
     if (default_video_sort && !['newest', 'oldest'].includes(default_video_sort)) {
-      return reply.code(400).send({ error: 'default_video_sort must be newest or oldest' });
+      return reply.code(400).send({ error: 'Sort order must be "newest" or "oldest".' });
     }
     const { rows } = await pool.query<ChannelRow>(
       `update channels
@@ -225,7 +226,7 @@ export async function adminRoutes(app: FastifyInstance) {
         is_recommended ?? null,
       ],
     );
-    if (rows.length === 0) return reply.code(404).send({ error: 'not found' });
+    if (rows.length === 0) return reply.code(404).send({ error: "Couldn't find that channel." });
     return rows[0];
   });
 
@@ -241,17 +242,17 @@ export async function adminRoutes(app: FastifyInstance) {
     Body: { name: string; channel_ids: string[]; position: number };
   }>('/api/profiles', async (req, reply) => {
     const { name, channel_ids, position } = req.body;
-    if (!name?.trim()) return reply.code(400).send({ error: 'name required' });
-    if (!Array.isArray(channel_ids)) return reply.code(400).send({ error: 'channel_ids must be array' });
+    if (!name?.trim()) return reply.code(400).send({ error: 'A name, please.' });
+    if (!Array.isArray(channel_ids)) return reply.code(400).send({ error: 'Channel list must be an array.' });
     if (!Number.isInteger(position) || position < 0 || position > 2) {
-      return reply.code(400).send({ error: 'position must be 0, 1, or 2' });
+      return reply.code(400).send({ error: 'Position must be 0, 1, or 2.' });
     }
 
     const { rows: existing } = await pool.query<{ count: string }>(
       'select count(*)::text as count from profiles',
     );
     if (Number(existing[0].count) >= 3) {
-      return reply.code(409).send({ error: 'max 3 profiles' });
+      return reply.code(409).send({ error: 'Three profiles is the house limit.' });
     }
 
     try {
@@ -264,7 +265,7 @@ export async function adminRoutes(app: FastifyInstance) {
       return rows[0];
     } catch (err: any) {
       if (err?.code === '23505') {
-        return reply.code(409).send({ error: 'position already taken' });
+        return reply.code(409).send({ error: "That position's already taken." });
       }
       throw err;
     }
@@ -277,7 +278,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const { id } = req.params;
     const { name, channel_ids, position } = req.body;
     if (position !== undefined && (!Number.isInteger(position) || position < 0 || position > 2)) {
-      return reply.code(400).send({ error: 'position must be 0, 1, or 2' });
+      return reply.code(400).send({ error: 'Position must be 0, 1, or 2.' });
     }
     try {
       const { rows } = await pool.query<ProfileRow>(
@@ -289,11 +290,11 @@ export async function adminRoutes(app: FastifyInstance) {
          returning id, name, channel_ids, position`,
         [id, name ?? null, channel_ids ?? null, position ?? null],
       );
-      if (rows.length === 0) return reply.code(404).send({ error: 'not found' });
+      if (rows.length === 0) return reply.code(404).send({ error: "Couldn't find that profile." });
       return rows[0];
     } catch (err: any) {
       if (err?.code === '23505') {
-        return reply.code(409).send({ error: 'position already taken' });
+        return reply.code(409).send({ error: "That position's already taken." });
       }
       throw err;
     }
@@ -301,7 +302,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { id: string } }>('/api/profiles/:id', async (req, reply) => {
     const { rowCount } = await pool.query('delete from profiles where id = $1', [req.params.id]);
-    if (rowCount === 0) return reply.code(404).send({ error: 'not found' });
+    if (rowCount === 0) return reply.code(404).send({ error: "Couldn't find that profile." });
     return reply.code(204).send();
   });
 }
