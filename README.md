@@ -31,7 +31,7 @@ It was built for one specific seven-year-old (hi, Henry) but the architecture is
 - **Continue-browsing strip.** After the last video in a channel, a horizontal row of other channels so a kid can hop without going back to the sidebar.
 - **No Shorts.** Ingest filters out Shorts automatically.
 - **Warm loading screen.** Rotating deadpan quips ("Asking YouTube nicely…", "Buttering the popcorn…") while the stream resolves.
-- **Admin web UI** (password-protected, LAN-only) for adding channels, tweaking profiles, and flipping channels active/inactive — no SSH into Postgres required.
+- **Admin web UI** (LAN-only) for adding channels, tweaking profiles, and flipping channels active/inactive — no SSH into Postgres required.
 - **Self-contained.** No YouTube Data API key. No Google OAuth. Just `yt-dlp` under the hood.
 
 ## Architecture
@@ -54,7 +54,7 @@ It was built for one specific seven-year-old (hi, Henry) but the architecture is
 
 - **Ingest** — hourly cron. For each active channel, `yt-dlp --flat-playlist --playlist-end 80` lists the 80 newest uploads. Rows upsert into Postgres with `is_short` flagged via a HEAD check against `/shorts/`. Shorts are hidden from the client.
 - **Resolve** — on each tap, the tvOS client POSTs the YouTube video ID to `/resolve`. The server shells to `yt-dlp` to get a fresh stream URL, caches it in Redis for ~5 hours, and returns it. AVPlayer plays the URL directly.
-- **Admin** — Fastify serves a single-file HTML admin UI at `/admin` behind HTTP Basic auth. Channel URL → metadata lookup happens server-side by scraping the channel page for `og:title` and the `UC…` ID.
+- **Admin** — Fastify serves a single-file HTML admin UI at `/admin` (no auth — LAN boundary is the security model). Channel URL → metadata lookup happens server-side by scraping the channel page for `og:title` and the `UC…` ID.
 - **Storage** — Postgres is the source of truth. Redis is only used for short-lived resolver caching.
 
 ## Requirements
@@ -85,7 +85,7 @@ docker compose up -d
 
 ```bash
 cp .env.example server/.env
-# edit server/.env and set ADMIN_PASSWORD to something strong
+# adjust DATABASE_URL / REDIS_URL if you're not using the docker-compose defaults
 ```
 
 ### 4. Run migrations and ingest
@@ -100,7 +100,7 @@ npm run -w @quietplay/server migrate
 npm run -w @quietplay/server dev
 ```
 
-Server listens on `http://localhost:8787`. Admin UI at `http://localhost:8787/admin` (user: anything, password: your `ADMIN_PASSWORD`).
+Server listens on `http://localhost:8787`. Admin UI at `http://localhost:8787/admin`. No auth — assume LAN-only access.
 
 ### 6. Add some channels + a profile
 
