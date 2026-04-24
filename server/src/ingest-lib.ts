@@ -10,7 +10,7 @@ import { pool } from './db.js';
 
 const execFileP = promisify(execFile);
 
-const MAX_ENTRIES = 150;
+const MAX_ENTRIES = 200;
 const CONCURRENCY = 4;
 const FEED_TIMEOUT_MS = 30_000;
 
