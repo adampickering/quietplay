@@ -1,24 +1,5 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { pool } from '../db.js';
-
-function requireAuth(req: FastifyRequest, reply: FastifyReply): boolean {
-  const expected = process.env.ADMIN_PASSWORD;
-  if (!expected) { reply.code(500).send({ error: 'ADMIN_PASSWORD not configured' }); return false; }
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Basic ')) {
-    reply.header('WWW-Authenticate', 'Basic realm="QuietPlay Admin"').code(401).send();
-    return false;
-  }
-  let decoded: string;
-  try { decoded = Buffer.from(header.slice(6), 'base64').toString('utf8'); }
-  catch { reply.code(401).send(); return false; }
-  const pass = decoded.includes(':') ? decoded.slice(decoded.indexOf(':') + 1) : decoded;
-  if (pass !== expected) {
-    reply.header('WWW-Authenticate', 'Basic realm="QuietPlay Admin"').code(401).send();
-    return false;
-  }
-  return true;
-}
 
 /**
  * Returns an opinionated blob for a single profile that the admin UI
@@ -31,7 +12,6 @@ function requireAuth(req: FastifyRequest, reply: FastifyReply): boolean {
  */
 export async function dashboardRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/api/dashboard/:id', async (req, reply) => {
-    if (!requireAuth(req, reply)) return reply;
     const profileId = req.params.id;
 
     const [

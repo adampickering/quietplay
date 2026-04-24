@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { request } from 'undici';
 import { pool } from '../db.js';
 import { categorize } from '../categorize.js';
@@ -109,38 +109,7 @@ interface ProfileRow {
   position: number;
 }
 
-function requireAuth(req: FastifyRequest, reply: FastifyReply): boolean {
-  const expected = process.env.ADMIN_PASSWORD;
-  if (!expected) {
-    reply.code(500).send({ error: 'ADMIN_PASSWORD not configured' });
-    return false;
-  }
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Basic ')) {
-    reply.header('WWW-Authenticate', 'Basic realm="QuietPlay Admin"').code(401).send();
-    return false;
-  }
-  let decoded: string;
-  try {
-    decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
-  } catch {
-    reply.code(401).send();
-    return false;
-  }
-  const sep = decoded.indexOf(':');
-  const pass = sep >= 0 ? decoded.slice(sep + 1) : decoded;
-  if (pass !== expected) {
-    reply.header('WWW-Authenticate', 'Basic realm="QuietPlay Admin"').code(401).send();
-    return false;
-  }
-  return true;
-}
-
 export async function adminRoutes(app: FastifyInstance) {
-  app.addHook('onRequest', async (req, reply) => {
-    if (!requireAuth(req, reply)) return reply;
-  });
-
   app.get('/', async (_req, reply) => {
     const html = await readFile(htmlPath, 'utf8');
     return reply.type('text/html; charset=utf-8').send(html);
