@@ -25,8 +25,15 @@ fi
 BLOCK_TAG="# QuietPlay cron — managed by scripts/install-cron.sh"
 BLOCK_END="# /QuietPlay cron"
 
+# cron's default PATH excludes nvm and Homebrew, so the `npm` script
+# (a `#!/usr/bin/env node` shebang) can't find node. Pin PATH to the
+# dirs that own the binaries this block invokes.
+NODE_BIN_DIR="$(dirname "$NPM")"
+CRON_PATH="$NODE_BIN_DIR:/usr/local/bin:/usr/bin:/bin"
+
 read -r -d '' BLOCK <<EOF || true
 $BLOCK_TAG
+PATH=$CRON_PATH
 0 * * * * cd $REPO && $NPM run -w @quietplay/server ingest >> /tmp/quietplay-ingest.log 2>&1
 0 3 * * 0 $BREW upgrade yt-dlp >> /tmp/quietplay-ytdlp-upgrade.log 2>&1
 0 4 * * * $REPO/scripts/backup-postgres.sh >> /tmp/quietplay-backup.log 2>&1
