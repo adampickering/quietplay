@@ -5,6 +5,25 @@ import { logger } from '../logger.js';
 
 const OK_TTL = 4 * 60 * 60;
 const FAIL_TTL = 15 * 60;
+const MAX_CONCURRENT_RESOLVES = 2;
+
+const inflight = new Map<string, Promise<string>>();
+let active = 0;
+const waitQueue: Array<() => void> = [];
+
+function acquireSlot(): Promise<void> {
+  if (active < MAX_CONCURRENT_RESOLVES) {
+    active++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waitQueue.push(resolve));
+}
+
+function releaseSlot() {
+  const next = waitQueue.shift();
+  if (next) next();
+  else active--;
+}
 
 interface OkPayload {
   status: 'ok';
@@ -43,7 +62,23 @@ export function resolverRoutes(runner: YtDlpRunner = defaultRunner) {
       }
 
       try {
-        const streamUrl = await runner.resolve(id);
+        let resolvePromise = inflight.get(id);
+        if (!resolvePromise) {
+          resolvePromise = (async () => {
+            await acquireSlot();
+            try {
+              return await runner.resolve(id);
+            } finally {
+              releaseSlot();
+            }
+          })();
+          inflight.set(id, resolvePromise);
+          resolvePromise.then(
+            () => inflight.delete(id),
+            () => inflight.delete(id),
+          );
+        }
+        const streamUrl = await resolvePromise;
         const expiresAt = new Date(Date.now() + OK_TTL * 1000).toISOString();
         const payload: OkPayload = { status: 'ok', streamUrl, expiresAt, error: null };
         await redis.set(okKey, JSON.stringify(payload), 'EX', OK_TTL);
