@@ -165,6 +165,9 @@ struct BreakModal: View {
         "Two hours is enough telly for one sitting, chief.",
         "Even the signalman gets a tea break.",
         "Put the kettle on. (Ask a grown-up first.)",
+        "Even Thomas takes a wash at the shed.",
+        "Pop out — check if it's still raining.",
+        "The TV is feeling overworked.",
     ]
 
     @FocusState private var focused: Bool
@@ -275,6 +278,9 @@ struct BedtimeLock: View {
         "Eyes get blurry past 7:30. Science.",
         "Nice try. The TV said no.",
         "If you watch one more, the TV files a complaint.",
+        "The signalman's gone home.",
+        "Brain cells request shore leave.",
+        "Night shift starts. You don't work here.",
     ]
 
     /// Sleepy SF Symbols, rotated alongside the subtitle.
@@ -393,6 +399,9 @@ enum BritishEmpty {
         "Wagons due in shortly",
         "No arrivals scheduled",
         "Held at the home signal",
+        "Track unavailable — awaiting clearance",
+        "All trains diverted, none due",
+        "Engineering works at this station",
     ]
 
     static let noChannels: [String] = [
@@ -402,6 +411,8 @@ enum BritishEmpty {
         "Awaiting timetable from control",
         "Nothing scheduled. Ask Dad for a platform.",
         "Depot still asleep. Try Dad.",
+        "Empty platform — ask Dad to add a service.",
+        "No services listed. Speak with the stationmaster.",
     ]
 
     /// Pick deterministically by day so the copy stays stable within

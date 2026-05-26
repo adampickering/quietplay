@@ -35,6 +35,11 @@ struct LoadingView: View {
         "Don't panic.",
         "All aboard!",
         "Putting the kettle on…",
+        "Asking the algorithm to behave…",
+        "Coaxing the buffer along…",
+        "Threading the video through…",
+        "Filing the paperwork…",
+        "Negotiating with the router…",
     ]
 
     var body: some View {
