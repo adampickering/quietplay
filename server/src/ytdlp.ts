@@ -1,7 +1,11 @@
 import { spawn } from 'node:child_process';
 
 const FORMAT = 'best[height<=1080][ext=mp4]/best[height<=1080]';
-const TIMEOUT_MS = 25_000;
+// Typical resolve runs 16–20s on this hardware. 25s left almost no
+// headroom for cipher-decode or YouTube edge-node spikes, so one
+// flaky moment poisoned the FAIL cache and the kid kept hitting
+// "Server's having a lie down" for the next 15 min.
+const TIMEOUT_MS = 45_000;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 export class ResolveError extends Error {}
