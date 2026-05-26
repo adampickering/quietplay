@@ -10,8 +10,8 @@ import { pool } from './db.js';
 
 const execFileP = promisify(execFile);
 
-const MAX_ENTRIES = 200;
-const CONCURRENCY = 4;
+const MAX_ENTRIES = 500;
+const CONCURRENCY = 2;
 const FEED_TIMEOUT_MS = 30_000;
 
 export interface Channel {

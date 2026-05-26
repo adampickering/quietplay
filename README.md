@@ -52,7 +52,7 @@ It was built for one specific seven-year-old (hi, Henry) but the architecture is
                                          └────────────────┘
 ```
 
-- **Ingest** — hourly cron. For each active channel, `yt-dlp --flat-playlist --playlist-end 200` lists the 200 newest uploads. Rows upsert into Postgres with `is_short` flagged by duration (≤60s). Shorts are hidden from the client.
+- **Ingest** — hourly cron. For each active channel, `yt-dlp --flat-playlist --playlist-end 500` lists the 500 newest uploads. Rows upsert into Postgres with `is_short` flagged by duration (≤60s). Shorts are hidden from the client.
 - **Resolve** — on each tap, the tvOS client POSTs the YouTube video ID to `/resolve`. The server shells to `yt-dlp` to get a fresh stream URL, caches it in Redis for ~5 hours, and returns it. AVPlayer plays the URL directly.
 - **Admin** — Fastify serves a single-file HTML admin UI at `/admin` (no auth — LAN boundary is the security model). Channel URL → metadata lookup happens server-side by scraping the channel page for `og:title` and the `UC…` ID.
 - **Storage** — Postgres is the source of truth. Redis is only used for short-lived resolver caching.

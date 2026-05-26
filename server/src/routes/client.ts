@@ -96,7 +96,7 @@ export async function clientRoutes(app: FastifyInstance) {
            and c.is_active = true
            and v.is_short = false
        ) ranked
-       where rn <= 200
+       where rn <= 500
        order by channel_id, rn`,
       [profile.channel_ids],
     );
