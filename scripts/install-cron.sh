@@ -2,7 +2,7 @@
 #
 # Install (or refresh) the QuietPlay user crontab entries:
 #   - hourly ingest of YouTube RSS feeds
-#   - weekly yt-dlp upgrade (Sundays 03:00)
+#   - weekly yt-dlp nightly self-update (Sundays 03:00)
 #   - nightly Postgres backup (04:00)
 #
 # Safe to re-run; existing QuietPlay-prefixed lines are replaced, other
@@ -15,10 +15,15 @@ set -euo pipefail
 
 REPO="${REPO:-/Users/adam/dev/quietplay}"
 NPM="$(which npm)"
-BREW="/usr/local/bin/brew"
+YTDLP="$(which yt-dlp)"
 
 if [[ -z "$NPM" ]]; then
   echo "npm not found on PATH" >&2
+  exit 1
+fi
+
+if [[ -z "$YTDLP" ]]; then
+  echo "yt-dlp not found on PATH" >&2
   exit 1
 fi
 
@@ -35,7 +40,7 @@ read -r -d '' BLOCK <<EOF || true
 $BLOCK_TAG
 PATH=$CRON_PATH
 0 * * * * cd $REPO && $NPM run -w @quietplay/server ingest >> /tmp/quietplay-ingest.log 2>&1
-0 3 * * 0 $BREW upgrade yt-dlp >> /tmp/quietplay-ytdlp-upgrade.log 2>&1
+0 3 * * 0 $YTDLP --update-to nightly >> /tmp/quietplay-ytdlp-upgrade.log 2>&1
 0 4 * * * $REPO/scripts/backup-postgres.sh >> /tmp/quietplay-backup.log 2>&1
 $BLOCK_END
 EOF
