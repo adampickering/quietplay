@@ -5,6 +5,12 @@ import { logger } from '../logger.js';
 
 const OK_TTL = 4 * 60 * 60;
 const FAIL_TTL = 15 * 60;
+// 2 is deliberate — bumping higher triggers YouTube IP-level rate
+// limiting, after which even sequential resolves slow from ~15s to
+// 80–100s for several minutes. Verified by experiment: 6 parallel
+// resolves throttled this Mac's IP so badly that a single subsequent
+// direct yt-dlp call took 97s. Don't raise without confirming YouTube
+// behaviour for this account/IP first.
 const MAX_CONCURRENT_RESOLVES = 2;
 
 const inflight = new Map<string, Promise<string>>();
