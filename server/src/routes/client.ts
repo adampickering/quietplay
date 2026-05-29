@@ -1,5 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { pool } from '../db.js';
+import { enqueuePreWarm } from '../resolverService.js';
+
+// Per channel, warm the OK cache for the top N newest videos on every
+// /library hit. Sized so a cold cache after a 4-hour TTL expiry catches
+// up before the kid picks (yt-dlp ~20s, serialised behind a single
+// pre-warm slot — see resolverService).
+const PRE_WARM_PER_CHANNEL = 3;
 
 interface PlayableRow {
   youtube_video_id: string;
@@ -107,6 +114,15 @@ export async function clientRoutes(app: FastifyInstance) {
       list.push(v);
       byChannel.set(v.channel_id, list);
     }
+
+    const preWarmTargets: string[] = [];
+    for (const c of channelsResult.rows) {
+      const videos = byChannel.get(c.id) ?? [];
+      for (const v of videos.slice(0, PRE_WARM_PER_CHANNEL)) {
+        preWarmTargets.push(v.youtube_video_id);
+      }
+    }
+    enqueuePreWarm(preWarmTargets);
 
     return channelsResult.rows.map((c) => ({
       ...c,

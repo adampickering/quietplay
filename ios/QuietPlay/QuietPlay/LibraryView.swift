@@ -170,9 +170,7 @@ struct LibraryView: View {
                                         : ch
                                     onSelect(video, actual, channels)
                                 },
-                                onFocusVideo: { video in
-                                    app.prefetchResolve(videoID: video.youtubeVideoId)
-                                },
+                                onFocusVideo: { _ in },
                                 onToggleFavorite: { video in
                                     let isNow = FavoritesStore.toggle(video.youtubeVideoId)
                                     withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {

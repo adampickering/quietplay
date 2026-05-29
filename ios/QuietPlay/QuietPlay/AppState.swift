@@ -81,7 +81,6 @@ final class AppState {
     /// Last wall-clock second we wrote progress to disk. Throttles
     /// UserDefaults writes to roughly one every 5 seconds of playback.
     @ObservationIgnored private var lastSavedProgressAt: Double = -100
-    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
     @ObservationIgnored private var seekHUDTask: Task<Void, Never>?
     @ObservationIgnored private var telemetryFlushTask: Task<Void, Never>?
 
@@ -351,20 +350,6 @@ final class AppState {
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard !Task.isCancelled else { return }
             await MainActor.run { self?.seekHUDSeconds = 0 }
-        }
-    }
-
-    /// Debounced background resolve for a video the kid is merely
-    /// *hovering* on. Server caches the result in Redis, so the actual
-    /// play-press later is an instant hit instead of a 1–2s cold
-    /// resolve. The 350ms delay means arrow-mashing through the grid
-    /// doesn't spam the resolver.
-    func prefetchResolve(videoID: String) {
-        prefetchTask?.cancel()
-        prefetchTask = Task { [api] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            if Task.isCancelled { return }
-            _ = try? await api.resolve(videoID: videoID)
         }
     }
 
