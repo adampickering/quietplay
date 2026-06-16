@@ -4,6 +4,9 @@ import { logger } from './logger.js';
 
 const OK_TTL = 4 * 60 * 60;
 const FAIL_TTL = 15 * 60;
+// SWR: re-resolve in the background once a cached OK has this little
+// time left. Headroom over yt-dlp's ~20–45s worst case.
+const SWR_REVALIDATE_THRESHOLD_MS = 20 * 60 * 1000;
 // 2 is deliberate — bumping higher triggers YouTube IP-level rate
 // limiting, after which even sequential resolves slow from ~15s to
 // 80–100s for several minutes. Verified by experiment: 6 parallel
@@ -14,20 +17,31 @@ const MAX_CONCURRENT_RESOLVES = 2;
 
 const inflight = new Map<string, Promise<string>>();
 let active = 0;
-const waitQueue: Array<() => void> = [];
+let foregroundActive = 0;
+const fgWaitQueue: Array<() => void> = [];
+const bgWaitQueue: Array<() => void> = [];
 
-function acquireSlot(): Promise<void> {
+function acquireSlot(priority: 'foreground' | 'background' = 'foreground'): Promise<void> {
   if (active < MAX_CONCURRENT_RESOLVES) {
     active++;
     return Promise.resolve();
   }
-  return new Promise((resolve) => waitQueue.push(resolve));
+  return new Promise((resolve) => {
+    if (priority === 'foreground') fgWaitQueue.push(resolve);
+    else bgWaitQueue.push(resolve);
+  });
 }
 
 function releaseSlot() {
-  const next = waitQueue.shift();
+  const next = fgWaitQueue.shift() ?? bgWaitQueue.shift();
   if (next) next();
   else active--;
+}
+
+async function waitForForegroundDrain(): Promise<void> {
+  while (foregroundActive > 0) {
+    await new Promise<void>((r) => setTimeout(r, 250));
+  }
 }
 
 export interface OkPayload {
@@ -51,20 +65,59 @@ export interface ResolveResult {
   cacheHit: boolean;
 }
 
-export async function resolveWithCache(id: string, runner: YtDlpRunner): Promise<ResolveResult> {
+const revalidating = new Set<string>();
+
+function revalidateInBackground(id: string, runner: YtDlpRunner): void {
+  if (revalidating.has(id) || inflight.has(id)) return;
+  revalidating.add(id);
+  void (async () => {
+    await waitForForegroundDrain();
+    const start = Date.now();
+    await acquireSlot('background');
+    try {
+      const streamUrl = await runner.resolve(id);
+      const expiresAt = new Date(Date.now() + OK_TTL * 1000).toISOString();
+      const payload: OkPayload = { status: 'ok', streamUrl, expiresAt, error: null };
+      await redis.set(`resolve:ok:${id}`, JSON.stringify(payload), 'EX', OK_TTL);
+      logger.info({ videoId: id, source: 'swr', duration_ms: Date.now() - start });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown';
+      logger.warn({ videoId: id, source: 'swr', err: message }, 'background revalidate failed');
+    } finally {
+      releaseSlot();
+      revalidating.delete(id);
+    }
+  })();
+}
+
+export async function resolveWithCache(
+  id: string,
+  runner: YtDlpRunner,
+  source: 'foreground' | 'background' = 'foreground',
+): Promise<ResolveResult> {
   const okKey = `resolve:ok:${id}`;
   const failKey = `resolve:fail:${id}`;
 
   const cachedOk = await redis.get(okKey);
-  if (cachedOk) return { payload: JSON.parse(cachedOk) as Payload, cacheHit: true };
+  if (cachedOk) {
+    const payload = JSON.parse(cachedOk) as Payload;
+    if (payload.status === 'ok' && payload.expiresAt) {
+      const msLeft = new Date(payload.expiresAt).getTime() - Date.now();
+      if (msLeft > 0 && msLeft < SWR_REVALIDATE_THRESHOLD_MS) {
+        revalidateInBackground(id, runner);
+      }
+    }
+    return { payload, cacheHit: true };
+  }
   const cachedFail = await redis.get(failKey);
   if (cachedFail) return { payload: JSON.parse(cachedFail) as Payload, cacheHit: true };
 
+  if (source === 'foreground') foregroundActive++;
   try {
     let resolvePromise = inflight.get(id);
     if (!resolvePromise) {
       resolvePromise = (async () => {
-        await acquireSlot();
+        await acquireSlot(source);
         try {
           return await runner.resolve(id);
         } finally {
@@ -87,6 +140,8 @@ export async function resolveWithCache(id: string, runner: YtDlpRunner): Promise
     const payload: ErrPayload = { status: 'error', streamUrl: null, expiresAt: null, error: message };
     await redis.set(failKey, JSON.stringify(payload), 'EX', FAIL_TTL);
     return { payload, cacheHit: false };
+  } finally {
+    if (source === 'foreground') foregroundActive--;
   }
 }
 
@@ -100,13 +155,14 @@ let preWarmRunning = false;
 
 async function drainPreWarm(): Promise<void> {
   while (preWarmQueue.length > 0) {
+    await waitForForegroundDrain();
     const id = preWarmQueue.shift()!;
     preWarmQueued.delete(id);
     try {
       if (await redis.get(`resolve:ok:${id}`)) continue;
       if (await redis.get(`resolve:fail:${id}`)) continue;
       const start = Date.now();
-      const { cacheHit } = await resolveWithCache(id, defaultRunner);
+      const { cacheHit } = await resolveWithCache(id, defaultRunner, 'background');
       logger.info({ videoId: id, source: 'prewarm', duration_ms: Date.now() - start, cache_hit: cacheHit });
     } catch (err) {
       logger.warn({ videoId: id, source: 'prewarm', err }, 'pre-warm resolve failed');

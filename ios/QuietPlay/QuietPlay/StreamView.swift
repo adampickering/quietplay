@@ -25,8 +25,9 @@ struct StreamView: View {
     /// place. Reads as "that thumbnail just expanded into the video"
     /// without a full matchedGeometry hero.
     @State private var entering: Bool = true
-    /// 5-minutes-left warning pill. Flips true inside the 19:25–19:30
-    /// window, flips false eight seconds later. `FiveMinuteWarningStore`
+    /// 5-minutes-left warning pill. Flips true inside the five-minute
+    /// pre-bedtime window (tracks Saturday's later curfew automatically),
+    /// flips false eight seconds later. `FiveMinuteWarningStore`
     /// persists the "already shown tonight" flag so the kid doesn't see
     /// it twice in one evening.
     @State private var fiveMinutesWarningVisible: Bool = false
@@ -238,9 +239,9 @@ struct StreamView: View {
     }
 
     /// Poll every 30 seconds while playback is mounted. If we've
-    /// entered the 19:25–19:30 firing window and haven't already
-    /// flashed tonight, show the toast for 8 seconds, then mark as
-    /// shown so the kid doesn't see it on every subsequent video.
+    /// entered the five-minute pre-bedtime firing window and haven't
+    /// already flashed tonight, show the toast for 8 seconds, then mark
+    /// it as shown so the kid doesn't see it on every subsequent video.
     private func startFiveMinuteWarningPoll() {
         fiveMinutesTask?.cancel()
         fiveMinutesTask = Task { @MainActor in

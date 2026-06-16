@@ -56,4 +56,24 @@ describe('resolver', () => {
     expect(r2.json().status).toBe('error');
     expect(runnerFail.resolve).toHaveBeenCalledTimes(1);
   });
+
+  it('serves a near-expiry cache hit and revalidates in the background', async () => {
+    const fresh = vi.fn(async () => 'https://googlevideo.example/new.mp4');
+    const app = await makeApp({ resolve: fresh });
+    const stale = {
+      status: 'ok',
+      streamUrl: 'https://googlevideo.example/old.mp4',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      error: null,
+    };
+    (redis as any).__store.set('resolve:ok:ccccccccccc', JSON.stringify(stale));
+
+    const r = await app.inject({ method: 'GET', url: '/resolve/ccccccccccc' });
+    expect(r.json().streamUrl).toBe(stale.streamUrl);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fresh).toHaveBeenCalledTimes(1);
+    const stored = JSON.parse((redis as any).__store.get('resolve:ok:ccccccccccc'));
+    expect(stored.streamUrl).toBe('https://googlevideo.example/new.mp4');
+  });
 });

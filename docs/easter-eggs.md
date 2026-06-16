@@ -16,7 +16,7 @@ doesn't accidentally spoil everything by grepping the source.
 
 ## Rotating goodnight lock
 
-- **Where:** `BedtimeLock`, active from 19:30 → 06:00 local.
+- **Where:** `BedtimeLock`, active from 20:15 → 06:00 local (Saturdays 21:00).
 - **What:** 10 funny subtitles and 10 sleepy SF Symbols, cycled
   deterministically by day-of-year. Same date always shows the same
   combo (no flicker across reboots), but tomorrow's different.
@@ -25,7 +25,7 @@ doesn't accidentally spoil everything by grepping the source.
 ## "5 minutes left" toast
 
 - **Where:** `FiveMinutesLeftToast` + `FiveMinuteWarningStore`.
-- **When:** Fires anywhere in the 19:25–19:30 window, once per evening.
+- **When:** Fires anywhere in the 20:10–20:15 window (20:55–21:00 Saturdays), once per evening.
 - **What:** Small capsule in the top-right of the player. Ignores the
   remote, doesn't pause playback, fades after 8 seconds.
 

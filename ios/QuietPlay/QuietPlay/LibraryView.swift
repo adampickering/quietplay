@@ -98,6 +98,7 @@ struct LibraryView: View {
     /// focusedChannelID so rapid scrolling doesn't thrash.
     @State private var settledChannelID: UUID?
     @State private var settleTask: Task<Void, Never>?
+    @State private var resolvePrefetcher = ResolvePrefetcher()
 
     private static func loadProgressSnapshot() -> [String: Double] {
         PlaybackProgressStore.all().compactMapValues { p in
@@ -170,7 +171,9 @@ struct LibraryView: View {
                                         : ch
                                     onSelect(video, actual, channels)
                                 },
-                                onFocusVideo: { _ in },
+                                onFocusVideo: { video in
+                                    resolvePrefetcher.onFocus(videoID: video.youtubeVideoId, api: app.api)
+                                },
                                 onToggleFavorite: { video in
                                     let isNow = FavoritesStore.toggle(video.youtubeVideoId)
                                     withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {

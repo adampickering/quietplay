@@ -221,9 +221,10 @@ struct BreakModal: View {
 
 // MARK: - Bedtime lock
 
-/// Hard curfew: from 19:30 through 06:00 the next morning the app
-/// refuses to play. Shows a gentle "Goodnight" screen that sits above
-/// everything and ignores all remote input. Auto-clears at 06:00.
+/// Hard curfew: weeknights and Sundays start at 20:15, Saturdays at
+/// 21:00 (movie-night allowance). Runs through 06:00 the next morning.
+/// Shows a gentle "Goodnight" screen that sits above everything and
+/// ignores all remote input. Auto-clears at 06:00.
 struct BedtimeLock: View {
     let profileName: String?
 
@@ -275,7 +276,7 @@ struct BedtimeLock: View {
         "The remote has clocked out.",
         "Brain. Plug. Out.",
         "Sleep now. New videos load while you snore.",
-        "Eyes get blurry past 7:30. Science.",
+        "Eyes get blurry past 8:15. Science.",
         "Nice try. The TV said no.",
         "If you watch one more, the TV files a complaint.",
         "The signalman's gone home.",
@@ -310,9 +311,20 @@ struct BedtimeLock: View {
         return ((day - 1) % n + n) % n
     }
 
-    /// Curfew window: 19:30–06:00 local. Inclusive of the start edge,
-    /// exclusive of the end (at 06:00 sharp the kid can use the app
-    /// again). Simulator builds skip the lock entirely so the app
+    /// Curfew start in minutes-since-midnight, by local weekday.
+    /// Saturday gets a later start (21:00) so movie night doesn't get
+    /// cut short; every other day is 20:15. Single source of truth —
+    /// `FiveMinuteWarningStore.inFireWindow` reads this to keep the
+    /// 5-min toast aligned automatically.
+    static func bedtimeStartMinutes(for now: Date = Date()) -> Int {
+        // Gregorian weekday: 1 = Sunday … 7 = Saturday.
+        let weekday = Calendar.current.component(.weekday, from: now)
+        return weekday == 7 ? (21 * 60) : (20 * 60 + 15)
+    }
+
+    /// Curfew window: bedtimeStart–06:00 local. Inclusive of the start
+    /// edge, exclusive of the end (at 06:00 sharp the kid can use the
+    /// app again). Simulator builds skip the lock entirely so the app
     /// is demo-able at any hour.
     static func isActive(now: Date = Date()) -> Bool {
         #if targetEnvironment(simulator)
@@ -321,15 +333,16 @@ struct BedtimeLock: View {
         let c = Calendar.current.dateComponents([.hour, .minute], from: now)
         guard let h = c.hour, let m = c.minute else { return false }
         let minutes = h * 60 + m
-        return minutes >= 19 * 60 + 30 || minutes < 6 * 60
+        return minutes >= bedtimeStartMinutes(for: now) || minutes < 6 * 60
         #endif
     }
 }
 
 // MARK: - 5-minutes-left warning
 
-/// Small pill that slides in from the top-right of the video at
-/// 18:55 and fades out eight seconds later. Gentle "winding down"
+/// Small pill that slides in from the top-right of the video five
+/// minutes before bedtime and fades out eight seconds later. Gentle
+/// "winding down"
 /// nudge — not a takeover, doesn't pause playback, doesn't block the
 /// remote. Shows at most once per evening.
 struct FiveMinutesLeftToast: View {
@@ -373,15 +386,18 @@ enum FiveMinuteWarningStore {
         UserDefaults.standard.set(true, forKey: prefix + todayKey)
     }
 
-    /// Fires anywhere in the 19:25–19:30 window so a late-starting
-    /// video at 19:26 still catches the warning. Stops at 19:30 — after
-    /// that the BedtimeLock takes the screen, and the toast would be a
-    /// lie (zero minutes left, not five).
+    /// Fires anywhere in the five minutes immediately before bedtime so
+    /// a video started late in that window still catches the warning.
+    /// Stops the instant bedtime hits — after that the BedtimeLock
+    /// takes the screen, and the toast would be a lie (zero minutes
+    /// left, not five). Tracks `BedtimeLock.bedtimeStartMinutes` so
+    /// Saturday's later curfew shifts the window in lockstep.
     static func inFireWindow(now: Date = Date()) -> Bool {
         let c = Calendar.current.dateComponents([.hour, .minute], from: now)
         guard let h = c.hour, let m = c.minute else { return false }
         let minutes = h * 60 + m
-        return minutes >= 19 * 60 + 25 && minutes < 19 * 60 + 30
+        let bedtime = BedtimeLock.bedtimeStartMinutes(for: now)
+        return minutes >= bedtime - 5 && minutes < bedtime
     }
 }
 

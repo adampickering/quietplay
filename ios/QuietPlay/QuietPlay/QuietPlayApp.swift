@@ -104,7 +104,8 @@ struct RootView: View {
                     .zIndex(100)
             }
 
-            // Bedtime curfew (19:30–06:00). Re-checks every minute via
+            // Bedtime curfew (20:15 most nights, 21:00 Saturdays, through
+            // 06:00). Re-checks every minute via
             // TimelineView — no polling timer needed. zIndex on the
             // outer TimelineView (not the inner BedtimeLock) so it
             // beats sibling overlays like BreakModal.
