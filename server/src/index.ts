@@ -9,16 +9,29 @@ import { eventRoutes } from './routes/events.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { logger } from './logger.js';
 
-async function main() {
-  // Fail fast if Postgres is unreachable. Without this check the server
-  // starts happily, binds the port, and only errors on the first
-  // request — which looks like a mystery 500 in the admin UI.
-  try {
-    await pool.query('select 1');
-  } catch (err) {
-    logger.error({ err }, 'database unreachable at startup');
-    throw err;
+// Wait for Postgres before binding the port. On a cold boot the server
+// races Docker Postgres coming up; retry for ~60s so we survive the race
+// but still fail fast if the DB is genuinely down (otherwise the server
+// binds the port and only errors on the first request — a mystery 500).
+async function waitForDatabase(timeoutMs = 60_000, intervalMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await pool.query('select 1');
+      return;
+    } catch (err) {
+      if (Date.now() >= deadline) {
+        logger.error({ err }, 'database unreachable at startup');
+        throw err;
+      }
+      logger.warn('database not ready, retrying…');
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
   }
+}
+
+async function main() {
+  await waitForDatabase();
 
   const app = Fastify({ loggerInstance: logger });
 
