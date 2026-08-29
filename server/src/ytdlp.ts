@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 
-const FORMAT = 'best[height<=1080][ext=mp4]/best[height<=1080]';
+const FORMAT = 'best[height<=1080][ext=mp4]/best[height<=1080]/best';
+// YouTube's SABR/PO-token rollout stripped the combined itag-18 URL from the
+// default web client — the URLs it now returns 403 on HEAD/range, so AVPlayer
+// can't play them. The tv_simply client still serves a range-capable combined
+// MP4. Verified 2026-08-28; revisit if resolves start failing en masse.
+const PLAYER_CLIENT = 'tv_simply';
 // Typical resolve runs 16–20s on this hardware. 25s left almost no
 // headroom for cipher-decode or YouTube edge-node spikes, so one
 // flaky moment poisoned the FAIL cache and the kid kept hitting
@@ -23,7 +28,15 @@ export const defaultRunner: YtDlpRunner = {
     return new Promise((resolvePromise, reject) => {
       const child = spawn(
         'yt-dlp',
-        ['-g', '-f', FORMAT, '--no-playlist', `https://www.youtube.com/watch?v=${videoId}`],
+        [
+          '-g',
+          '-f',
+          FORMAT,
+          '--extractor-args',
+          `youtube:player_client=${PLAYER_CLIENT}`,
+          '--no-playlist',
+          `https://www.youtube.com/watch?v=${videoId}`,
+        ],
         { stdio: ['ignore', 'pipe', 'pipe'] },
       );
 
