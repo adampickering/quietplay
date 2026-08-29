@@ -209,27 +209,6 @@ struct StreamView: View {
         onExitToLibrary()
     }
 
-    /// Poll every 30 seconds while playback is mounted. If we've
-    /// entered the five-minute pre-bedtime firing window and haven't
-    /// already flashed tonight, show the toast for 8 seconds, then mark
-    /// it as shown so the kid doesn't see it on every subsequent video.
-    private func startFiveMinuteWarningPoll() {
-        fiveMinutesTask?.cancel()
-        fiveMinutesTask = Task { @MainActor in
-            while !Task.isCancelled {
-                if FiveMinuteWarningStore.inFireWindow(),
-                   !FiveMinuteWarningStore.hasShownTonight() {
-                    fiveMinutesWarningVisible = true
-                    try? await Task.sleep(nanoseconds: 8_000_000_000)
-                    if Task.isCancelled { break }
-                    fiveMinutesWarningVisible = false
-                    FiveMinuteWarningStore.markShownTonight()
-                }
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
-            }
-        }
-    }
-
     // When all candidates are from the same channel as the current one we can
     // hide the channel label (kid already knows what they're watching). When
     // the picker falls back to other channels we show it so "Thomas" and
