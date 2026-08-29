@@ -25,13 +25,6 @@ struct StreamView: View {
     /// place. Reads as "that thumbnail just expanded into the video"
     /// without a full matchedGeometry hero.
     @State private var entering: Bool = true
-    /// 5-minutes-left warning pill. Flips true inside the five-minute
-    /// pre-bedtime window (tracks Saturday's later curfew automatically),
-    /// flips false eight seconds later. `FiveMinuteWarningStore`
-    /// persists the "already shown tonight" flag so the kid doesn't see
-    /// it twice in one evening.
-    @State private var fiveMinutesWarningVisible: Bool = false
-    @State private var fiveMinutesTask: Task<Void, Never>?
     /// Seek acceleration state: rapid same-direction presses grow the
     /// stride so a three-tap burst jumps 10 + 20 + 30 = 60 seconds.
     @State private var seekStride: Int = 10
@@ -148,25 +141,8 @@ struct StreamView: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            // "5 minutes left" wind-down nudge. Top-right so it doesn't
-            // collide with the title chip that lives top-left. Ignores
-            // the remote, doesn't pause playback.
-            if fiveMinutesWarningVisible {
-                VStack {
-                    HStack {
-                        Spacer()
-                        FiveMinutesLeftToast()
-                            .padding(.top, 44)
-                            .padding(.trailing, 56)
-                    }
-                    Spacer()
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-                .allowsHitTesting(false)
-            }
         }
         .animation(.easeOut(duration: 0.18), value: app.seekHUDSeconds)
-        .animation(.easeInOut(duration: 0.35), value: fiveMinutesWarningVisible)
         .animation(.easeInOut(duration: 0.3), value: app.autoAdvanceActive)
         .animation(.easeOut(duration: 0.2), value: app.pickerPresented)
         .animation(.easeInOut(duration: 0.18), value: app.isPaused)
@@ -174,11 +150,6 @@ struct StreamView: View {
             withAnimation(.easeOut(duration: 0.38)) {
                 entering = false
             }
-            startFiveMinuteWarningPoll()
-        }
-        .onDisappear {
-            fiveMinutesTask?.cancel()
-            fiveMinutesTask = nil
         }
         .onChange(of: app.isLoading, initial: true) { _, loading in
             spinnerTask?.cancel()

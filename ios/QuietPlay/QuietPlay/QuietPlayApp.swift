@@ -96,37 +96,12 @@ struct RootView: View {
             // Two-hour watch-time nudge. Sits over everything —
             // library or playback — because that's the moment the kid
             // needs to hear it. Dismissing persists so we don't nag
-            // twice in the same day. Suppressed during bedtime so the
-            // kid sees "Goodnight" alone, not two modals fighting.
-            if app.breakSuggested && !BedtimeLock.isActive() {
+            // twice in the same day.
+            if app.breakSuggested {
                 BreakModal(onDismiss: { app.dismissBreakSuggestion() })
                     .transition(.opacity)
                     .zIndex(100)
             }
-
-            // Bedtime curfew (20:15 most nights, 21:00 Saturdays, through
-            // 06:00). Re-checks every minute via
-            // TimelineView — no polling timer needed. zIndex on the
-            // outer TimelineView (not the inner BedtimeLock) so it
-            // beats sibling overlays like BreakModal.
-            TimelineView(.periodic(from: .now, by: 60)) { ctx in
-                if BedtimeLock.isActive(now: ctx.date) {
-                    BedtimeLock(profileName: app.currentProfile?.name)
-                        .transition(.opacity)
-                        .onExitCommand { /* eat Menu */ }
-                        .onPlayPauseCommand { /* eat Play/Pause */ }
-                        .onAppear {
-                            // Stop any in-flight playback so audio
-                            // doesn't continue behind the lock, and
-                            // drop the break nag so it can't reappear
-                            // if the kid dismisses bedtime somehow.
-                            app.player.pause()
-                            app.breakSuggested = false
-                        }
-                }
-            }
-            .zIndex(300)
-            .allowsHitTesting(BedtimeLock.isActive())
         }
         .animation(.easeInOut(duration: 0.25), value: app.bootstrapState)
         .animation(.easeInOut(duration: 0.25), value: app.profilePickerPresented)
